@@ -1,0 +1,6 @@
+.env
+.streamlit/secrets.toml
+sales_ai.sqlite3
+__pycache__/
+.pytest_cache/
+*.pyc
