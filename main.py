@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from urllib.parse import quote
+from urllib.parse import urlparse
 
 import pandas as pd
 import streamlit as st
@@ -37,7 +38,11 @@ def main() -> None:
     if not require_login():
         return
 
-    init_db()
+    try:
+        init_db()
+    except Exception as exc:
+        render_database_error(exc)
+        return
 
     st.title("AI営業自動化ツール for 運送会社")
     st.caption("見込み客の収集、AI提案文の作成、問い合わせ状況の管理までを半自動化します。")
@@ -85,6 +90,50 @@ def require_login() -> bool:
         else:
             st.error("パスワードが違います。")
     return False
+
+
+def render_database_error(exc: Exception) -> None:
+    parsed = urlparse(settings.database_url or "")
+    host = parsed.hostname or "未設定"
+    port = parsed.port or "未設定"
+    is_pooler = "pooler.supabase.com" in host
+
+    st.title("データベース接続エラー")
+    st.error("Supabaseに接続できませんでした。Secretsの DATABASE_URL を確認してください。")
+    st.write(f"接続先ホスト: `{host}`")
+    st.write(f"接続先ポート: `{port}`")
+    st.write(f"Pooler接続: `{'はい' if is_pooler else 'いいえ'}`")
+
+    if not is_pooler:
+        st.warning(
+            "Streamlit Cloudでは Supabase の Direct connection ではなく、"
+            "Session pooler の接続文字列を使ってください。"
+        )
+
+    st.markdown(
+        """
+### 直し方
+
+1. Supabaseで **Connect**
+2. **Direct** タブ
+3. **Session pooler** を選択
+4. Type は **URI**
+5. connection string をコピー
+6. `[YOUR-PASSWORD]` をDBパスワードに置き換える
+7. パスワード内の `%` は `%25` に置き換える
+8. Streamlit CloudのSecretsで `DATABASE_URL` を差し替える
+9. Save後にアプリをReboot
+
+`DATABASE_URL` はこの形です。
+
+```toml
+DATABASE_URL = "postgresql://postgres.xxxxx:password@aws-0-xxxx.pooler.supabase.com:5432/postgres"
+```
+"""
+    )
+
+    with st.expander("開発者向けエラー種別"):
+        st.code(f"{type(exc).__name__}: {exc}", language="text")
 
 
 def render_search() -> None:
