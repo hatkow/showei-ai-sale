@@ -13,10 +13,8 @@ from db import (
     add_form_result,
     add_proposal,
     add_send_log,
-    delete_all_companies,
-    delete_companies_by_url_patterns,
-    delete_company,
     get_company,
+    get_connection,
     init_db,
     list_activities,
     list_companies,
@@ -27,10 +25,32 @@ from db import (
     update_company_contact,
     update_company_status,
     upsert_companies,
+    _execute,
 )
 from form_finder import find_contact_form
 from lead_search import search_companies
 from proposal_generator import generate_fax_proposal, generate_proposal, generate_resend_proposal
+
+try:
+    from db import delete_all_companies, delete_companies_by_url_patterns, delete_company
+except ImportError:
+    def delete_company(company_id: int) -> None:
+        with get_connection() as conn:
+            _execute(conn, "DELETE FROM companies WHERE id = ?", (company_id,))
+
+    def delete_all_companies() -> None:
+        with get_connection() as conn:
+            _execute(conn, "DELETE FROM companies")
+
+    def delete_companies_by_url_patterns(patterns: list[str]) -> int:
+        deleted = 0
+        with get_connection() as conn:
+            for pattern in patterns:
+                rows = _execute(conn, "SELECT id FROM companies WHERE url LIKE ?", (pattern,)).fetchall()
+                for row in rows:
+                    _execute(conn, "DELETE FROM companies WHERE id = ?", (row["id"],))
+                    deleted += 1
+        return deleted
 
 
 STATUSES = ["未確認", "送信候補", "送信済み", "返信あり", "商談化", "見送り", "NG"]
