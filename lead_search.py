@@ -105,6 +105,8 @@ def _search_places_with_serper(keyword: str, area: str, num: int) -> list[dict]:
                 "area": area,
                 "address": item.get("address"),
                 "phone": item.get("phoneNumber"),
+                "latitude": item.get("latitude"),
+                "longitude": item.get("longitude"),
                 "summary": _place_summary(item),
                 "status": "未確認",
             }

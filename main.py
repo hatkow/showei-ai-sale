@@ -13,6 +13,9 @@ from db import (
     add_form_result,
     add_proposal,
     add_send_log,
+    delete_all_companies,
+    delete_companies_by_url_patterns,
+    delete_company,
     get_company,
     init_db,
     list_activities,
@@ -27,10 +30,34 @@ from db import (
 )
 from form_finder import find_contact_form
 from lead_search import search_companies
-from proposal_generator import generate_proposal, generate_resend_proposal
+from proposal_generator import generate_fax_proposal, generate_proposal, generate_resend_proposal
 
 
 STATUSES = ["未確認", "送信候補", "送信済み", "返信あり", "商談化", "見送り", "NG"]
+SEARCH_PRESETS = [
+    "建材メーカー 定期配送",
+    "建材店 定期配送",
+    "医療器具・機械 定期配送",
+    "電子部品 定期配送",
+    "機械部品 定期配送",
+    "食品 定期配送",
+    "楽器輸送",
+]
+NOISE_URL_PATTERNS = [
+    "%baseconnect.%",
+    "%rikunabi.%",
+    "%doda.%",
+    "%mynavi.%",
+    "%buffett-code.%",
+    "%compalyze.%",
+    "%ipros.%",
+    "%showei-service.com%",
+    "%xn--pckua2a7gp%",
+    "%suumo.%",
+    "%pref.gunma.jp%",
+    "%itp.ne.jp%",
+    "%tkjk.or.jp%",
+]
 
 
 def main() -> None:
@@ -144,9 +171,12 @@ def render_search() -> None:
             ".env に設定すると、検索結果から実在サイトを取得できます。"
         )
     col1, col2, col3 = st.columns([2, 1, 1])
-    keyword = col1.text_input("業種・キーワード", value="建材メーカー 定期配送")
+    preset = col1.selectbox("検索プリセット", SEARCH_PRESETS)
+    custom_keyword = col1.text_input("自由検索", placeholder="例: 梱包資材、金属加工、精密機械")
+    keyword = custom_keyword.strip() or preset
     area = col2.text_input("エリア", value="群馬県")
     num = col3.number_input("取得件数", min_value=1, max_value=50, value=20)
+    replace_results = st.checkbox("検索前に既存の営業候補をすべて削除して入れ替える", value=False)
 
     if st.button("検索して保存", type="primary"):
         with st.spinner("候補企業を検索し、営業優先度を判定しています..."):
@@ -160,6 +190,8 @@ def render_search() -> None:
                         "例: '建材店'、'建設資材'、'食品製造' のように変更してください。"
                     )
                 return
+            if replace_results:
+                delete_all_companies()
             count = upsert_companies(companies)
         st.success(f"{count}件を保存しました。")
         st.dataframe(pd.DataFrame(companies), use_container_width=True)
@@ -167,6 +199,20 @@ def render_search() -> None:
 
 def render_companies() -> None:
     st.subheader("営業候補一覧")
+
+    with st.expander("古い候補・不要候補の整理"):
+        st.caption("求人サイト、企業一覧サイト、自社サイトなど営業対象になりにくい候補をまとめて削除できます。")
+        col1, col2 = st.columns([1, 2])
+        if col1.button("求人・一覧サイト候補を削除"):
+            deleted = delete_companies_by_url_patterns(NOISE_URL_PATTERNS)
+            st.success(f"{deleted}件を削除しました。")
+            st.rerun()
+        delete_all_confirm = col2.checkbox("全営業候補を削除する場合だけチェック")
+        if col2.button("営業候補を全削除", disabled=not delete_all_confirm):
+            delete_all_companies()
+            st.success("営業候補をすべて削除しました。")
+            st.rerun()
+
     status = st.selectbox("ステータス", ["すべて", *STATUSES])
     rows = list_companies(status)
     if not rows:
@@ -190,6 +236,8 @@ def render_companies() -> None:
                 "contact_url",
                 "email",
                 "fax",
+                "latitude",
+                "longitude",
                 "url",
             ]
         ],
@@ -200,6 +248,21 @@ def render_companies() -> None:
     company = select_company(rows)
     if not company:
         return
+
+    st.markdown("#### 事前確認")
+    map_url = company_maps_url(company)
+    street_view_url = company_street_view_url(company)
+    col_map, col_street, col_delete = st.columns([1, 1, 2])
+    col_map.link_button("Google Mapで確認", map_url)
+    if street_view_url:
+        col_street.link_button("ストリートビューで確認", street_view_url)
+    else:
+        col_street.info("位置情報がある候補はストリートビューを開けます。")
+    delete_confirm = col_delete.checkbox("この会社を削除する", key=f"delete-confirm-{company['id']}")
+    if col_delete.button("選択中の会社を削除", disabled=not delete_confirm, key=f"delete-company-{company['id']}"):
+        delete_company(company["id"])
+        st.success("選択中の会社を削除しました。")
+        st.rerun()
 
     col1, col2 = st.columns([1, 2])
     new_status = col1.selectbox("ステータス変更", STATUSES, index=STATUSES.index(company["status"]))
@@ -224,11 +287,18 @@ def render_proposals() -> None:
         return
 
     st.write(f"対象: **{company['name']}** / スコア {company['need_score']}")
-    if st.button("AI提案文を生成", type="primary"):
+    col1, col2 = st.columns(2)
+    if col1.button("フォーム・メール用の提案文を生成", type="primary"):
         with st.spinner("企業情報に合わせて提案文を作成しています..."):
             subject, message = generate_proposal(dict(company))
             add_proposal(company["id"], subject, message)
         st.success("提案文を保存しました。")
+        st.rerun()
+    if col2.button("FAX用の文面を生成"):
+        with st.spinner("FAXで読みやすい営業文を作成しています..."):
+            subject, message = generate_fax_proposal(dict(company))
+            add_proposal(company["id"], subject, message)
+        st.success("FAX用の文面を保存しました。")
         st.rerun()
 
     proposals = list_proposals(company["id"])
@@ -341,7 +411,9 @@ def render_send_tools(company: dict, proposal: dict) -> None:
 
     email_key = f"email-{company['id']}-{proposal['id']}"
     form_key = f"form-{company['id']}-{proposal['id']}"
+    fax_key = f"fax-{company['id']}-{proposal['id']}"
     email = st.text_input("宛先メール", value=company["email"] or "", key=email_key)
+    fax = st.text_input("FAX番号", value=company["fax"] or "", key=fax_key)
     contact_url = st.text_input(
         "問い合わせフォームURL",
         value=company["contact_url"] or company["url"] or "",
@@ -349,7 +421,7 @@ def render_send_tools(company: dict, proposal: dict) -> None:
     )
     channel = st.selectbox(
         "送信方法",
-        ["問い合わせフォーム", "メール", "電話後フォロー", "その他"],
+        ["問い合わせフォーム", "メール", "FAX", "電話後フォロー", "その他"],
         key=f"channel-{proposal['id']}",
     )
     approach = st.selectbox(
@@ -360,7 +432,7 @@ def render_send_tools(company: dict, proposal: dict) -> None:
 
     col1, col2, col3 = st.columns(3)
     if col1.button("連絡先を保存", key=f"save-contact-{proposal['id']}"):
-        update_company_contact(company["id"], email=email, contact_url=contact_url)
+        update_company_contact(company["id"], email=email, contact_url=contact_url, fax=fax)
         st.success("連絡先を保存しました。")
         st.rerun()
 
@@ -374,6 +446,9 @@ def render_send_tools(company: dict, proposal: dict) -> None:
         col3.link_button("フォームを開く", contact_url)
     else:
         col3.info("フォームURL未登録")
+
+    if fax:
+        st.info(f"FAX送付先: {fax}")
 
     st.caption("コピー用")
     st.code(f"件名: {proposal['subject']}\n\n{proposal['message']}", language="text")
@@ -396,6 +471,41 @@ def render_send_tools(company: dict, proposal: dict) -> None:
         )
         st.success("送信済みに記録しました。")
         st.rerun()
+
+
+def row_value(row, key: str, default=None):
+    try:
+        value = row[key]
+    except (KeyError, IndexError, TypeError):
+        value = row.get(key, default) if hasattr(row, "get") else default
+    return default if value is None else value
+
+
+def company_maps_url(company) -> str:
+    url = str(row_value(company, "url", "") or "")
+    if "google.com/maps" in url:
+        return url
+
+    latitude = row_value(company, "latitude")
+    longitude = row_value(company, "longitude")
+    if latitude and longitude:
+        return f"https://www.google.com/maps/search/?api=1&query={latitude},{longitude}"
+
+    query_parts = [
+        row_value(company, "name", ""),
+        row_value(company, "address", ""),
+        row_value(company, "area", ""),
+    ]
+    query = " ".join(str(part) for part in query_parts if part)
+    return f"https://www.google.com/maps/search/?api=1&query={quote(query)}"
+
+
+def company_street_view_url(company) -> str:
+    latitude = row_value(company, "latitude")
+    longitude = row_value(company, "longitude")
+    if not latitude or not longitude:
+        return ""
+    return f"https://www.google.com/maps/@?api=1&map_action=pano&viewpoint={latitude},{longitude}"
 
 
 def build_mailto(email: str, subject: str, body: str) -> str:
@@ -432,6 +542,7 @@ def render_send_management() -> None:
             status=("status", "last"),
             contact_url=("contact_url", "last"),
             email=("email", "last"),
+            fax=("fax", "last"),
         )
         .sort_values(["last_sent_at", "send_count"], ascending=[False, False])
     )
@@ -456,6 +567,7 @@ def render_send_management() -> None:
                 "note",
                 "contact_url",
                 "email",
+                "fax",
             ]
         ],
         use_container_width=True,
@@ -528,6 +640,8 @@ def render_help() -> None:
 5. フォームまたはメールで送る
 6. 送信済みに記録する
 7. 送信管理で過去履歴を見て、別アプローチで再送する
+
+FAX番号が取れた会社には、FAX用の文面を生成して送付履歴として管理できます。
 """
     )
 
@@ -584,6 +698,9 @@ Streamlit Cloudに公開する場合は `.env` ではなく、Secretsに設定�
 **検索して保存** を押すと、実在会社の候補が保存されます。
 
 検索結果には、会社名、Webサイト、住所、電話番号、営業優先度などが入ります。
+
+検索キーワードはプリセットから選ぶか、自由検索欄に入力できます。
+求人情報や企業一覧サイトが混ざった場合は、営業候補一覧の整理ボタンで削除できます。
 """
         )
 
@@ -602,7 +719,11 @@ Streamlit Cloudに公開する場合は `.env` ではなく、Secretsに設定�
 - 送信回数
 - 問い合わせフォームURL
 - メールアドレス
+- FAX番号
 - 会社URL
+
+会社を選ぶと、Google Mapで所在地を確認できます。
+位置情報が取得できている会社は、ストリートビュー確認リンクも表示されます。
 
 ステータスは、`未確認`、`送信候補`、`送信済み`、`返信あり`、`商談化`、`見送り`、`NG` で管理できます。
 """
@@ -635,7 +756,7 @@ Streamlit Cloudに公開する場合は `.env` ではなく、Secretsに設定�
 左メニューの **提案文生成** を開きます。
 
 1. 会社を選ぶ
-2. **AI提案文を生成** を押す
+2. **フォーム・メール用の提案文を生成** または **FAX用の文面を生成** を押す
 3. 件名と本文を確認する
 4. 送信方法とアプローチを選ぶ
 5. **フォームを開く** または **メール下書きを開く**

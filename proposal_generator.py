@@ -24,6 +24,12 @@ def generate_resend_proposal(
     return _generate_resend_template(company, approach)
 
 
+def generate_fax_proposal(company: dict) -> tuple[str, str]:
+    if settings.openai_api_key:
+        return _generate_fax_with_openai(company)
+    return _generate_fax_template(company)
+
+
 def _generate_with_openai(company: dict) -> tuple[str, str]:
     client = OpenAI(api_key=settings.openai_api_key)
     prompt = f"""
@@ -106,6 +112,42 @@ def _generate_resend_with_openai(
     return data["subject"], data["message"]
 
 
+def _generate_fax_with_openai(company: dict) -> tuple[str, str]:
+    client = OpenAI(api_key=settings.openai_api_key)
+    prompt = f"""
+運送会社から法人宛に送るFAX営業文を日本語で作成してください。
+
+営業会社:
+- 会社名: {settings.sales_company_name}
+- 担当者: {settings.sales_contact_name}
+- 電話: {settings.sales_phone}
+- メール: {settings.sales_email}
+- 対応エリア: {settings.sales_area}
+- 会社概要: {settings.sales_profile}
+
+対象企業:
+- 会社名: {company.get("name")}
+- 業種: {company.get("industry")}
+- 住所/エリア: {company.get("address") or company.get("area")}
+- 提案候補: {company.get("suggested_offer")}
+
+条件:
+- FAXで読みやすいように短く、見出し付き
+- 売り込みすぎず、配送体制の相談・情報交換として書く
+- 緊急配送、チャーター便、定期便、スポット便の対応力を自然に入れる
+- 2024年問題、欠車リスク、配送コスト安定を必要に応じて入れる
+- 件名と本文を分ける
+- JSONで subject と message のみ返す
+"""
+    response = client.responses.create(
+        model="gpt-4.1-mini",
+        input=prompt,
+        text={"format": {"type": "json_object"}},
+    )
+    data = json.loads(response.output_text)
+    return data["subject"], data["message"]
+
+
 def _generate_template(company: dict) -> tuple[str, str]:
     company_name = company.get("name") or "ご担当者様"
     industry = company.get("industry") or "貴社事業"
@@ -144,4 +186,31 @@ def _generate_resend_template(company: dict, approach: str) -> tuple[str, str]:
 {settings.sales_contact_name}
 {settings.sales_email}
 {settings.sales_phone}"""
+    return subject, message
+
+
+def _generate_fax_template(company: dict) -> tuple[str, str]:
+    company_name = company.get("name") or "ご担当者様"
+    offer = company.get("suggested_offer") or "定期便・チャーター便"
+    subject = f"配送体制に関するご相談（{settings.sales_company_name}）"
+    message = f"""FAX送付のご案内
+
+{company_name}
+物流・配送ご担当者様
+
+突然のご連絡失礼いたします。
+{settings.sales_company_name}の{settings.sales_contact_name}と申します。
+
+弊社は{settings.sales_area}を中心に、緊急配送、チャーター便、定期便、スポット便、軽貨物配送などを行っております。
+
+貴社の配送体制において、{offer}、急な物量増加、欠車リスク対策、配送コストの安定化などでお困りごとがございましたら、一度情報交換の機会をいただけますと幸いです。
+
+すぐのご依頼でなくても、今後の委託先候補としてご相談いただける体制を整えております。
+
+何卒よろしくお願いいたします。
+
+{settings.sales_company_name}
+担当: {settings.sales_contact_name}
+TEL: {settings.sales_phone}
+MAIL: {settings.sales_email}"""
     return subject, message

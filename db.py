@@ -63,6 +63,10 @@ def _ensure_sqlite_columns(conn) -> None:
     existing = {row["name"] for row in conn.execute("PRAGMA table_info(companies)").fetchall()}
     if "fax" not in existing:
         conn.execute("ALTER TABLE companies ADD COLUMN fax TEXT")
+    if "latitude" not in existing:
+        conn.execute("ALTER TABLE companies ADD COLUMN latitude REAL")
+    if "longitude" not in existing:
+        conn.execute("ALTER TABLE companies ADD COLUMN longitude REAL")
 
 
 SQLITE_SCHEMA = """
@@ -76,6 +80,8 @@ CREATE TABLE IF NOT EXISTS companies (
     phone TEXT,
     fax TEXT,
     email TEXT,
+    latitude REAL,
+    longitude REAL,
     contact_url TEXT,
     summary TEXT,
     need_score INTEGER DEFAULT 0,
@@ -148,6 +154,8 @@ POSTGRES_SCHEMA = [
         phone TEXT,
         fax TEXT,
         email TEXT,
+        latitude DOUBLE PRECISION,
+        longitude DOUBLE PRECISION,
         contact_url TEXT,
         summary TEXT,
         need_score INTEGER DEFAULT 0,
@@ -161,6 +169,12 @@ POSTGRES_SCHEMA = [
     """,
     """
     ALTER TABLE companies ADD COLUMN IF NOT EXISTS fax TEXT
+    """,
+    """
+    ALTER TABLE companies ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION
+    """,
+    """
+    ALTER TABLE companies ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION
     """,
     """
     CREATE TABLE IF NOT EXISTS forms (
@@ -230,11 +244,11 @@ def upsert_companies(companies: Iterable[dict[str, Any]]) -> int:
                 conn,
                 """
                 INSERT INTO companies (
-                    name, url, industry, area, address, phone, fax, email, contact_url,
+                    name, url, industry, area, address, phone, fax, email, latitude, longitude, contact_url,
                     summary, need_score, score_reason, suggested_offer, status,
                     created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, '未確認'), ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, '未確認'), ?, ?)
                 ON CONFLICT(name, url) DO UPDATE SET
                     industry=COALESCE(excluded.industry, companies.industry),
                     area=COALESCE(excluded.area, companies.area),
@@ -242,6 +256,8 @@ def upsert_companies(companies: Iterable[dict[str, Any]]) -> int:
                     phone=COALESCE(excluded.phone, companies.phone),
                     fax=COALESCE(excluded.fax, companies.fax),
                     email=COALESCE(excluded.email, companies.email),
+                    latitude=COALESCE(excluded.latitude, companies.latitude),
+                    longitude=COALESCE(excluded.longitude, companies.longitude),
                     contact_url=COALESCE(excluded.contact_url, companies.contact_url),
                     summary=COALESCE(excluded.summary, companies.summary),
                     need_score=excluded.need_score,
@@ -258,6 +274,8 @@ def upsert_companies(companies: Iterable[dict[str, Any]]) -> int:
                     company.get("phone"),
                     company.get("fax"),
                     company.get("email"),
+                    company.get("latitude"),
+                    company.get("longitude"),
                     company.get("contact_url"),
                     company.get("summary"),
                     int(company.get("need_score") or 0),
@@ -321,6 +339,28 @@ def update_company_contact(
     values.append(company_id)
     with get_connection() as conn:
         _execute(conn, f"UPDATE companies SET {', '.join(fields)} WHERE id = ?", values)
+
+
+def delete_company(company_id: int) -> None:
+    with get_connection() as conn:
+        _execute(conn, "DELETE FROM companies WHERE id = ?", (company_id,))
+
+
+def delete_all_companies() -> None:
+    with get_connection() as conn:
+        _execute(conn, "DELETE FROM companies")
+
+
+def delete_companies_by_url_patterns(patterns: list[str]) -> int:
+    deleted = 0
+    with get_connection() as conn:
+        for pattern in patterns:
+            rows = _execute(conn, "SELECT id FROM companies WHERE url LIKE ?", (pattern,)).fetchall()
+            ids = [_row_get(row, "id") for row in rows]
+            for company_id in ids:
+                _execute(conn, "DELETE FROM companies WHERE id = ?", (company_id,))
+                deleted += 1
+    return deleted
 
 
 def add_proposal(company_id: int, subject: str, message: str) -> None:
@@ -456,7 +496,7 @@ def list_send_logs(company_id: int | None = None) -> list[Any]:
             return _execute(
                 conn,
                 """
-                SELECT s.*, c.name AS company_name, c.url, c.contact_url, c.email, c.status
+                SELECT s.*, c.name AS company_name, c.url, c.contact_url, c.email, c.fax, c.status
                 FROM send_logs s
                 JOIN companies c ON c.id = s.company_id
                 WHERE s.company_id = ?
@@ -467,7 +507,7 @@ def list_send_logs(company_id: int | None = None) -> list[Any]:
         return _execute(
             conn,
             """
-            SELECT s.*, c.name AS company_name, c.url, c.contact_url, c.email, c.status
+            SELECT s.*, c.name AS company_name, c.url, c.contact_url, c.email, c.fax, c.status
             FROM send_logs s
             JOIN companies c ON c.id = s.company_id
             ORDER BY s.sent_at DESC

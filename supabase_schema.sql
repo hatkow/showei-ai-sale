@@ -8,6 +8,8 @@ CREATE TABLE IF NOT EXISTS companies (
     phone TEXT,
     fax TEXT,
     email TEXT,
+    latitude DOUBLE PRECISION,
+    longitude DOUBLE PRECISION,
     contact_url TEXT,
     summary TEXT,
     need_score INTEGER DEFAULT 0,
@@ -69,3 +71,5 @@ CREATE INDEX IF NOT EXISTS idx_send_logs_company_id ON send_logs(company_id);
 CREATE INDEX IF NOT EXISTS idx_send_logs_sent_at ON send_logs(sent_at DESC);
 
 ALTER TABLE companies ADD COLUMN IF NOT EXISTS fax TEXT;
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION;
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION;
