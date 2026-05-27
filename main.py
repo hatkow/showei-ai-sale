@@ -29,7 +29,7 @@ from db import (
     now_iso,
 )
 from form_finder import find_contact_form
-from lead_search import find_company_website, search_companies
+from lead_search import find_company_website, find_google_map_listing, search_companies
 from proposal_generator import generate_fax_proposal, generate_proposal, generate_resend_proposal
 
 try:
@@ -328,6 +328,7 @@ def render_easy_flow() -> None:
     company = select_company(rows)
     if not company:
         return
+    company = enrich_company_from_google_map(company)
 
     proposals = list_proposals(company["id"])
     latest_proposal = proposals[0] if proposals else None
@@ -373,10 +374,11 @@ def render_easy_flow() -> None:
         st.rerun()
     if col_site.button("Google Map掲載サイトURLを取得", key=f"easy-site-{company['id']}"):
         with st.spinner("Google Mapの会社情報からサイトURLを探しています..."):
-            website_url = find_company_website(company["name"], company["area"] or "")
-            if website_url:
-                update_company_website(company["id"], website_url)
-                st.success(f"サイトURLを保存しました: {website_url}")
+            info = find_google_map_listing(company["name"], company["area"] or "")
+            if info.get("website"):
+                update_company_google_map_info(company["id"], info)
+                st.session_state[f"google_map_info_checked_{company['id']}"] = True
+                st.success(f"サイトURLを保存しました: {info['website']}")
                 st.rerun()
             else:
                 st.warning("Google Map掲載のサイトURLは見つかりませんでした。")
@@ -804,6 +806,56 @@ def update_company_website(company_id: int, website_url: str | None) -> None:
         return
     with get_connection() as conn:
         _execute(conn, "UPDATE companies SET url = ?, updated_at = ? WHERE id = ?", (website_url, now_iso(), company_id))
+
+
+def update_company_google_map_info(company_id: int, info: dict) -> None:
+    fields = ["updated_at = ?"]
+    values: list = [now_iso()]
+    if info.get("website"):
+        fields.insert(0, "url = ?")
+        values.insert(0, info["website"])
+    if info.get("address"):
+        fields.insert(0, "address = COALESCE(NULLIF(?, ''), address)")
+        values.insert(0, info["address"])
+    if info.get("phone"):
+        fields.insert(0, "phone = COALESCE(NULLIF(?, ''), phone)")
+        values.insert(0, info["phone"])
+    if info.get("latitude"):
+        fields.insert(0, "latitude = ?")
+        values.insert(0, info["latitude"])
+    if info.get("longitude"):
+        fields.insert(0, "longitude = ?")
+        values.insert(0, info["longitude"])
+    values.append(company_id)
+    with get_connection() as conn:
+        _execute(conn, f"UPDATE companies SET {', '.join(fields)} WHERE id = ?", values)
+
+
+def enrich_company_from_google_map(company: dict) -> dict:
+    company = dict(company)
+    cache_key = f"google_map_info_checked_{company['id']}"
+    if st.session_state.get(cache_key):
+        return company
+    st.session_state[cache_key] = True
+
+    info = find_google_map_listing(company["name"], company.get("area") or "")
+    if not info:
+        return company
+
+    update_company_google_map_info(company["id"], info)
+    if info.get("website"):
+        company["url"] = info["website"]
+    if info.get("address") and not company.get("address"):
+        company["address"] = info["address"]
+    if info.get("phone") and not company.get("phone"):
+        company["phone"] = info["phone"]
+    if info.get("latitude"):
+        company["latitude"] = info["latitude"]
+    if info.get("longitude"):
+        company["longitude"] = info["longitude"]
+    if info.get("website"):
+        st.success(f"Google Map掲載サイトURLを取得しました: {info['website']}")
+    return company
 
 
 def render_missing_contact_help(count: int | None = None) -> None:
@@ -1240,13 +1292,28 @@ PC側に既定のメールアプリが設定されていない可能性があり
     st.info("基本は、検索 → フォームURL取得 → 提案文生成 → 送信済みに記録 → 送信管理で再送、の順番です。")
 
 
-def select_company(rows) -> dict | None:
+def select_company(rows, key: str = "selected_company") -> dict | None:
     if not rows:
         st.info("企業データがありません。")
         return None
-    labels = {f"{row['id']}: {row['name']}（{row['need_score']}点）": row for row in rows}
-    selected = st.selectbox("企業を選択", list(labels.keys()))
-    return labels[selected]
+    row_by_id = {int(row["id"]): row for row in rows}
+    ids = list(row_by_id.keys())
+    saved_id = st.session_state.get(f"{key}_id")
+    index = ids.index(saved_id) if saved_id in ids else 0
+
+    def company_label(company_id: int) -> str:
+        row = row_by_id[company_id]
+        return f"{row['id']}: {row['name']}（{row['need_score']}点）"
+
+    selected_id = st.selectbox(
+        "企業を選択",
+        ids,
+        index=index,
+        format_func=company_label,
+        key=key,
+    )
+    st.session_state[f"{key}_id"] = int(selected_id)
+    return dict(row_by_id[int(selected_id)])
 
 
 if __name__ == "__main__":

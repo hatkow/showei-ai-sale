@@ -245,6 +245,41 @@ def find_company_website(name: str, area: str) -> str | None:
     return _find_company_website(name, area)
 
 
+def find_google_map_listing(name: str, area: str) -> dict:
+    if not settings.serper_api_key:
+        return {}
+    queries = [f"{name} {area}".strip(), name]
+    for query in queries:
+        try:
+            response = requests.post(
+                "https://google.serper.dev/places",
+                headers={"X-API-KEY": settings.serper_api_key, "Content-Type": "application/json"},
+                json={"q": query, "num": 5, "gl": "jp", "hl": "ja"},
+                timeout=20,
+            )
+            response.raise_for_status()
+        except requests.RequestException:
+            continue
+
+        for item in response.json().get("places", []):
+            title = item.get("title", "")
+            website = item.get("website")
+            if website and _is_excluded_result(title, item.get("category", ""), website):
+                website = None
+            if title or website:
+                return {
+                    "name": title,
+                    "website": website,
+                    "address": item.get("address"),
+                    "phone": item.get("phoneNumber"),
+                    "latitude": item.get("latitude"),
+                    "longitude": item.get("longitude"),
+                    "category": item.get("category"),
+                    "cid": item.get("cid"),
+                }
+    return {}
+
+
 def _normalize_company_name(name: str) -> str:
     normalized = (
         name.replace("（株）", "株式会社")
