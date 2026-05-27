@@ -599,7 +599,22 @@ def show_dataframe(df: pd.DataFrame, columns: list[str] | None = None) -> None:
     else:
         display_df = df.copy()
     display_df = display_df.rename(columns=COLUMN_LABELS)
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    display_df = display_df.fillna("")
+
+    column_config = {}
+    for column_name in ("問い合わせフォームURL", "会社URL"):
+        if column_name in display_df.columns:
+            column_config[column_name] = st.column_config.LinkColumn(
+                column_name,
+                display_text="開く",
+            )
+
+    st.dataframe(
+        display_df,
+        use_container_width=True,
+        hide_index=True,
+        column_config=column_config,
+    )
 
 
 def row_value(row, key: str, default=None):
