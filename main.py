@@ -26,6 +26,7 @@ from db import (
     update_company_status,
     upsert_companies,
     _execute,
+    now_iso,
 )
 from form_finder import find_contact_form
 from lead_search import find_company_website, search_companies
@@ -348,10 +349,12 @@ def render_easy_flow() -> None:
         value=company["contact_url"] or company["url"] or "",
         help="通常はそのままで大丈夫です。公式サイトが別に分かる場合だけ変更してください。",
     )
-    col_check, col_map = st.columns([1, 1])
+    col_check, col_site, col_map = st.columns([1, 1, 1])
     if col_check.button("フォーム・FAXを確認する", type="primary", disabled=not bool(check_url), key=f"easy-check-{company['id']}"):
         with st.spinner("問い合わせ先を確認しています。公式サイトも探します..."):
             result = find_contact_for_company(company, check_url)
+            if result.get("official_url"):
+                update_company_website(company["id"], result["official_url"])
             add_form_result(
                 company["id"],
                 result["form_url"],
@@ -368,6 +371,15 @@ def render_easy_flow() -> None:
                 update_company_contact(company["id"], email=email, fax=fax)
         st.success("問い合わせ先を保存しました。次は文面を作成してください。")
         st.rerun()
+    if col_site.button("Google Map掲載サイトURLを取得", key=f"easy-site-{company['id']}"):
+        with st.spinner("Google Mapの会社情報からサイトURLを探しています..."):
+            website_url = find_company_website(company["name"], company["area"] or "")
+            if website_url:
+                update_company_website(company["id"], website_url)
+                st.success(f"サイトURLを保存しました: {website_url}")
+                st.rerun()
+            else:
+                st.warning("Google Map掲載のサイトURLは見つかりませんでした。")
     col_map.link_button("Google Mapで確認", company_maps_url(company))
 
     st.markdown("### 2. 営業文を作る")
@@ -600,6 +612,8 @@ def render_forms() -> None:
                 for index, row in enumerate(targets, start=1):
                     status_box.write(f"{index}/{len(targets)}: {row['name']} のフォームURLを確認中...")
                     result = find_contact_for_company(row, row["url"])
+                    if result.get("official_url"):
+                        update_company_website(row["id"], result["official_url"])
                     add_form_result(
                         row["id"],
                         result["form_url"],
@@ -649,6 +663,8 @@ def render_forms() -> None:
     if st.button("フォームを探す", type="primary", disabled=not bool(target_url)):
         with st.spinner("問い合わせページと入力項目を確認しています..."):
             result = find_contact_for_company(company, target_url)
+            if result.get("official_url"):
+                update_company_website(company["id"], result["official_url"])
             add_form_result(
                 company["id"],
                 result["form_url"],
@@ -770,15 +786,24 @@ def find_contact_for_company(company, target_url: str) -> dict:
         if not url:
             continue
         result = find_contact_form(url)
+        if official_url:
+            result["official_url"] = official_url
         if url != target_url:
-            result["notes"] = f"公式サイト候補から再確認: {url} / {result.get('notes', '')}"
+            result["notes"] = f"Google Map掲載サイトURLから再確認: {url} / {result.get('notes', '')}"
         if result.get("fields") and not _is_recruit_form(result.get("form_url", "")):
             return result
-        if result.get("faxes") or result.get("emails"):
+        if result.get("faxes") or result.get("emails") or result.get("phones"):
             best_result = result
         elif best_result is None:
             best_result = result
     return best_result or find_contact_form(target_url)
+
+
+def update_company_website(company_id: int, website_url: str | None) -> None:
+    if not website_url:
+        return
+    with get_connection() as conn:
+        _execute(conn, "UPDATE companies SET url = ?, updated_at = ? WHERE id = ?", (website_url, now_iso(), company_id))
 
 
 def render_missing_contact_help(count: int | None = None) -> None:
