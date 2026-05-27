@@ -453,7 +453,10 @@ def render_flow_status(company, latest_proposal, send_count: int) -> None:
     ]
     cols = st.columns(4)
     for col, (label, done) in zip(cols, steps):
-        col.success(f"{label}\n完了") if done else col.info(f"{label}\nこれから")
+        if done:
+            col.success(f"{label}\n完了")
+        else:
+            col.info(f"{label}\nこれから")
 
 
 def render_companies() -> None:
