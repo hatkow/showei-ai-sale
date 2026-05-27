@@ -15,10 +15,15 @@ EXCLUDED_DOMAINS = {
     "doda.jp",
     "global-axis.jp",
     "ipros.com",
+    "itp.ne.jp",
+    "its-mo.com",
+    "ivry.jp",
     "job.mynavi.jp",
     "job.rikunabi.com",
+    "mapion.co.jp",
     "blastmail.jp",
     "mailwise.cybozu.co.jp",
+    "akitekt.net",
     "showei-service.com",
     "tayori.com",
     "xn--pckua2a7gp15089zb.com",
@@ -89,6 +94,8 @@ def _search_places_with_serper(keyword: str, area: str, num: int) -> list[dict]:
                 return _dedupe_companies(companies)
             name = item.get("title", "").strip()
             url = item.get("website")
+            if not url and item.get("cid"):
+                url = f"https://www.google.com/maps?cid={item['cid']}"
             if not name or not url or _is_excluded_result(name, item.get("category", ""), url):
                 continue
             company = {
@@ -142,6 +149,31 @@ def _search_organic_with_serper(keyword: str, area: str, num: int) -> list[dict]
     return companies
 
 
+def _find_company_website(name: str, area: str) -> str | None:
+    query = (
+        f'"{name}" {area} 会社 '
+        "-求人 -採用 -転職 -就活 -仕事 -Baseconnect -doda -リクナビ -マイナビ"
+    )
+    try:
+        response = requests.post(
+            "https://google.serper.dev/search",
+            headers={"X-API-KEY": settings.serper_api_key, "Content-Type": "application/json"},
+            json={"q": query, "num": 5, "gl": "jp", "hl": "ja"},
+            timeout=20,
+        )
+        response.raise_for_status()
+    except requests.RequestException:
+        return None
+
+    for item in response.json().get("organic", []):
+        url = item.get("link")
+        title = item.get("title", "")
+        snippet = item.get("snippet", "")
+        if url and not _is_excluded_result(title, snippet, url):
+            return url
+    return None
+
+
 def _place_summary(item: dict) -> str:
     parts = []
     for key in ("category", "address", "phoneNumber"):
@@ -158,6 +190,8 @@ def _is_excluded_result(title: str, snippet: str | None, url: str) -> bool:
     text = f"{title} {snippet or ''}".lower()
     if domain in EXCLUDED_DOMAINS or any(domain.endswith(f".{excluded}") for excluded in EXCLUDED_DOMAINS):
         return True
+    if domain in {"google.com", "maps.google.com", "www.google.com"}:
+        return False
     if any(word.lower() in text for word in EXCLUDED_TITLE_WORDS):
         return True
     if parsed.path.lower().endswith((".pdf", ".jpg", ".png")):

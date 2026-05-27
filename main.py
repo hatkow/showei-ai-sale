@@ -152,7 +152,13 @@ def render_search() -> None:
         with st.spinner("候補企業を検索し、営業優先度を判定しています..."):
             companies = search_companies(keyword, area, int(num))
             if not companies:
-                st.error("検索結果がありません。SERPER_API_KEY を設定してから再実行してください。")
+                if not settings.serper_api_key:
+                    st.error("SERPER_API_KEY が未設定です。設定してから再実行してください。")
+                else:
+                    st.error(
+                        "条件に合う会社が見つかりませんでした。キーワードを短くするか、"
+                        "例: '建材店'、'建設資材'、'食品製造' のように変更してください。"
+                    )
                 return
             count = upsert_companies(companies)
         st.success(f"{count}件を保存しました。")
