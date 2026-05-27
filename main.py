@@ -144,9 +144,9 @@ def render_search() -> None:
             ".env に設定すると、検索結果から実在サイトを取得できます。"
         )
     col1, col2, col3 = st.columns([2, 1, 1])
-    keyword = col1.text_input("業種・キーワード", value="食品メーカー 定期配送")
-    area = col2.text_input("エリア", value="埼玉県")
-    num = col3.number_input("取得件数", min_value=1, max_value=50, value=10)
+    keyword = col1.text_input("業種・キーワード", value="建材メーカー 定期配送")
+    area = col2.text_input("エリア", value="群馬県")
+    num = col3.number_input("取得件数", min_value=1, max_value=50, value=20)
 
     if st.button("検索して保存", type="primary"):
         with st.spinner("候補企業を検索し、営業優先度を判定しています..."):
