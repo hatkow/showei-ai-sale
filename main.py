@@ -130,6 +130,38 @@ NOISE_TEXT_PATTERNS = [
     "%スタンバイ%",
     "%タウンワーク%",
 ]
+COLUMN_LABELS = {
+    "id": "ID",
+    "name": "会社名",
+    "company_name": "会社名",
+    "industry": "業種",
+    "area": "エリア",
+    "address": "住所",
+    "phone": "電話番号",
+    "fax": "FAX番号",
+    "email": "メール",
+    "need_score": "営業スコア",
+    "score_reason": "評価理由",
+    "suggested_offer": "提案内容",
+    "status": "ステータス",
+    "send_count": "送信回数",
+    "contact_url": "問い合わせフォームURL",
+    "url": "会社URL",
+    "latitude": "緯度",
+    "longitude": "経度",
+    "created_at": "作成日時",
+    "updated_at": "更新日時",
+    "sent_at": "送信日時",
+    "channel": "送信方法",
+    "approach": "アプローチ",
+    "subject": "件名",
+    "message": "本文",
+    "note": "メモ",
+    "last_sent_at": "最終送信日時",
+    "last_channel": "最終送信方法",
+    "last_approach": "最終アプローチ",
+    "company_id": "会社ID",
+}
 
 
 def main() -> None:
@@ -269,7 +301,7 @@ def render_search() -> None:
         st.success(f"{count}件を保存しました。")
         if removed_noise:
             st.info(f"求人サイトなど営業対象外の候補を{removed_noise}件除外しました。")
-        st.dataframe(pd.DataFrame(companies), use_container_width=True)
+        show_dataframe(pd.DataFrame(companies))
 
 
 def render_companies() -> None:
@@ -298,27 +330,24 @@ def render_companies() -> None:
     df = pd.DataFrame([dict(row) for row in rows])
     counts = send_count_by_company()
     df["send_count"] = df["id"].map(counts).fillna(0).astype(int)
-    st.dataframe(
-        df[
-            [
-                "id",
-                "name",
-                "industry",
-                "area",
-                "need_score",
-                "suggested_offer",
-                "status",
-                "send_count",
-                "contact_url",
-                "email",
-                "fax",
-                "latitude",
-                "longitude",
-                "url",
-            ]
+    show_dataframe(
+        df,
+        [
+            "id",
+            "name",
+            "industry",
+            "area",
+            "need_score",
+            "suggested_offer",
+            "status",
+            "send_count",
+            "contact_url",
+            "email",
+            "fax",
+            "latitude",
+            "longitude",
+            "url",
         ],
-        use_container_width=True,
-        hide_index=True,
     )
 
     company = select_company(rows)
@@ -394,6 +423,11 @@ def render_forms() -> None:
     rows = list_companies()
     if rows:
         st.markdown("#### 一括取得")
+        if st.session_state.get("last_form_bulk_summary"):
+            st.markdown("#### 前回の一括取得結果")
+            st.caption("画面を移動するまで、この結果を確認できます。会社情報にも保存済みです。")
+            show_dataframe(pd.DataFrame(st.session_state["last_form_bulk_summary"]))
+
         only_missing = st.checkbox("フォームURL未取得の会社だけ対象にする", value=True)
         limit = st.number_input("最大取得件数", min_value=1, max_value=100, value=min(10, len(rows)))
         if st.button("検索結果のフォームURLを一括取得", type="primary"):
@@ -441,8 +475,8 @@ def render_forms() -> None:
                     )
                     progress.progress(index / len(targets))
                 status_box.success("一括取得が完了しました。")
-                st.dataframe(pd.DataFrame(summary), use_container_width=True, hide_index=True)
-                st.rerun()
+                st.session_state["last_form_bulk_summary"] = summary
+                show_dataframe(pd.DataFrame(summary))
 
         st.divider()
 
@@ -479,7 +513,7 @@ def render_forms() -> None:
             st.write(form["notes"] or "")
             fields = json.loads(form["fields_json"] or "[]")
             if fields:
-                st.dataframe(pd.DataFrame(fields), use_container_width=True, hide_index=True)
+                show_dataframe(pd.DataFrame(fields))
 
 
 def render_send_tools(company: dict, proposal: dict) -> None:
@@ -556,6 +590,16 @@ def cleanup_noise_once() -> None:
     st.session_state["noise_cleanup_done"] = True
     if deleted:
         st.success(f"求人サイトなど営業対象外の候補を{deleted}件削除しました。")
+
+
+def show_dataframe(df: pd.DataFrame, columns: list[str] | None = None) -> None:
+    if columns:
+        existing_columns = [column for column in columns if column in df.columns]
+        display_df = df[existing_columns].copy()
+    else:
+        display_df = df.copy()
+    display_df = display_df.rename(columns=COLUMN_LABELS)
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
 
 
 def row_value(row, key: str, default=None):
@@ -638,25 +682,22 @@ def render_send_management() -> None:
     col3.metric("複数回送信", int((summary["send_count"] >= 2).sum()))
 
     st.markdown("#### 会社別送信状況")
-    st.dataframe(summary, use_container_width=True, hide_index=True)
+    show_dataframe(summary)
 
     st.markdown("#### 送信履歴")
-    st.dataframe(
-        df[
-            [
-                "sent_at",
-                "company_name",
-                "channel",
-                "approach",
-                "subject",
-                "note",
-                "contact_url",
-                "email",
-                "fax",
-            ]
+    show_dataframe(
+        df,
+        [
+            "sent_at",
+            "company_name",
+            "channel",
+            "approach",
+            "subject",
+            "note",
+            "contact_url",
+            "email",
+            "fax",
         ],
-        use_container_width=True,
-        hide_index=True,
     )
 
     labels = {
@@ -704,7 +745,7 @@ def render_activities() -> None:
     if not activities:
         st.info("活動履歴はまだありません。")
         return
-    st.dataframe(pd.DataFrame([dict(row) for row in activities]), use_container_width=True, hide_index=True)
+    show_dataframe(pd.DataFrame([dict(row) for row in activities]))
 
 
 def render_help() -> None:
