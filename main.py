@@ -632,6 +632,12 @@ def render_forms() -> None:
                 status_box.success("一括取得が完了しました。")
                 st.session_state["last_form_bulk_summary"] = summary
                 show_dataframe(pd.DataFrame(summary))
+                missing = [
+                    item for item in summary
+                    if not item.get("フォームURL") and not item.get("メール") and not item.get("FAX")
+                ]
+                if missing:
+                    render_missing_contact_help(len(missing))
 
         st.divider()
 
@@ -658,6 +664,8 @@ def render_forms() -> None:
             elif email or fax:
                 update_company_contact(company["id"], email=email, fax=fax)
         st.success("フォーム確認結果を保存しました。")
+        if not result.get("fields") and not result.get("emails") and not result.get("faxes"):
+            render_missing_contact_help()
         st.rerun()
 
     forms = list_forms(company["id"])
@@ -666,7 +674,10 @@ def render_forms() -> None:
             st.write(f"reCAPTCHA: {'あり' if form['has_captcha'] else 'なし'}")
             st.write(f"下書き自動入力候補: {'可' if form['can_autofill'] else '要確認'}")
             st.write(form["notes"] or "")
-            st.success("次にやること: 左メニューの「かんたん営業フロー」を開き、文面を作って送信してください。")
+            if "見つかりませんでした" in (form["notes"] or ""):
+                render_missing_contact_help()
+            else:
+                st.success("次にやること: 左メニューの「かんたん営業フロー」を開き、文面を作って送信してください。")
             fields = json.loads(form["fields_json"] or "[]")
             if fields:
                 show_form_fields(fields)
@@ -768,6 +779,35 @@ def find_contact_for_company(company, target_url: str) -> dict:
         elif best_result is None:
             best_result = result
     return best_result or find_contact_form(target_url)
+
+
+def render_missing_contact_help(count: int | None = None) -> None:
+    title = "フォームが見つからなかった会社があります" if count else "フォームが見つかりませんでした"
+    if count:
+        st.warning(f"{title}: {count}件")
+    else:
+        st.warning(title)
+
+    st.markdown(
+        """
+**次にやること**
+
+1. **会社URLを開く**  
+   画面上の会社URLまたはGoogle Mapを開き、公式サイトが別にないか確認します。
+
+2. **サイト内で探す場所**  
+   `お問い合わせ`、`Contact`、`会社概要`、`事業所一覧`、`営業所一覧`、`アクセス` を見ます。
+
+3. **フォームがない場合**  
+   FAX番号、代表電話、メールアドレスがあれば、その方法で営業できます。
+
+4. **別URLで再確認**  
+   公式サイトのトップページURLを「確認するURL」に貼り直して、もう一度 **フォームを探す** を押します。
+
+5. **それでもない場合**  
+   ステータスを `見送り`、または活動メモに `フォームなし・FAX/電話確認` と残してください。
+"""
+    )
 
 
 def _is_recruit_form(url: str) -> bool:
