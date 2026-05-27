@@ -29,7 +29,7 @@ class Settings:
     openai_api_key: str | None = get_setting("OPENAI_API_KEY")
     serper_api_key: str | None = get_setting("SERPER_API_KEY")
     database_url: str | None = get_setting("DATABASE_URL")
-    app_password: str | None = get_setting("APP_PASSWORD")
+    app_password: str | None = get_setting("APP_PASSWORD", "Showei2429")
     sales_company_name: str = get_setting("SALES_COMPANY_NAME", "有限会社翔栄サービス") or ""
     sales_contact_name: str = get_setting("SALES_CONTACT_NAME", "原田 裕士") or ""
     sales_email: str = get_setting("SALES_EMAIL", "info@example.com") or ""

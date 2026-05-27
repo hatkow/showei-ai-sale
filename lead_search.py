@@ -40,6 +40,13 @@ EXCLUDED_TITLE_WORDS = (
     "就活",
     "仕事",
     "ドライバー",
+    "アルバイト",
+    "バイト",
+    "求人ボックス",
+    "indeed",
+    "インディード",
+    "スタンバイ",
+    "タウンワーク",
     "企業一覧",
     "企業情報",
     "採用データ",
@@ -195,6 +202,8 @@ def _is_excluded_result(title: str, snippet: str | None, url: str) -> bool:
     if domain in {"google.com", "maps.google.com", "www.google.com"}:
         return False
     if any(word.lower() in text for word in EXCLUDED_TITLE_WORDS):
+        return True
+    if any(word in f"{title} {snippet or ''}" for word in ("求人", "仕事", "アルバイト", "バイト", "採用", "転職", "ドライバー")):
         return True
     if parsed.path.lower().endswith((".pdf", ".jpg", ".png")):
         return True

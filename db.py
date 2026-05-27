@@ -363,6 +363,32 @@ def delete_companies_by_url_patterns(patterns: list[str]) -> int:
     return deleted
 
 
+def delete_companies_by_noise_patterns(url_patterns: list[str], text_patterns: list[str]) -> int:
+    deleted_ids: set[int] = set()
+    with get_connection() as conn:
+        for pattern in url_patterns:
+            rows = _execute(conn, "SELECT id FROM companies WHERE LOWER(COALESCE(url, '')) LIKE LOWER(?)", (pattern,)).fetchall()
+            deleted_ids.update(int(_row_get(row, "id")) for row in rows)
+
+        for pattern in text_patterns:
+            rows = _execute(
+                conn,
+                """
+                SELECT id FROM companies
+                WHERE LOWER(COALESCE(name, '')) LIKE LOWER(?)
+                   OR LOWER(COALESCE(summary, '')) LIKE LOWER(?)
+                   OR LOWER(COALESCE(industry, '')) LIKE LOWER(?)
+                   OR LOWER(COALESCE(url, '')) LIKE LOWER(?)
+                """,
+                (pattern, pattern, pattern, pattern),
+            ).fetchall()
+            deleted_ids.update(int(_row_get(row, "id")) for row in rows)
+
+        for company_id in deleted_ids:
+            _execute(conn, "DELETE FROM companies WHERE id = ?", (company_id,))
+    return len(deleted_ids)
+
+
 def add_proposal(company_id: int, subject: str, message: str) -> None:
     with get_connection() as conn:
         current = _execute(
