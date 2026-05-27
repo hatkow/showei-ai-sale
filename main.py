@@ -345,6 +345,14 @@ def render_easy_flow() -> None:
     contact_cols[2].metric("FAX", "あり" if company["fax"] else "未確認")
     contact_cols[3].metric("送信回数", send_count)
 
+    if company["contact_url"]:
+        st.success("問い合わせフォームが見つかっています。下のボタンから開いて、本文を貼り付けて送信できます。")
+        col_open_form, col_preview_form = st.columns([1, 2])
+        col_open_form.link_button("問い合わせフォームを開く", company["contact_url"], type="primary")
+        preview_form = col_preview_form.checkbox("この画面内でフォームをプレビューする", key=f"preview-form-{company['id']}")
+        if preview_form:
+            st.components.v1.iframe(company["contact_url"], height=650, scrolling=True)
+
     check_url = st.text_input(
         "確認するURL",
         value=company["contact_url"] or company["url"] or "",
