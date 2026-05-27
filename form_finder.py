@@ -31,6 +31,11 @@ CONTACT_FIELD_HINTS = (
 )
 EMAIL_RE = re.compile(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}")
 PHONE_RE = re.compile(r"(?:0\d{1,4}[-\s]?\d{1,4}[-\s]?\d{3,4})")
+LABELED_PHONE_RE = re.compile(
+    r"(?:TEL|Tel|tel|電話|電話番号)[：:．.\s]*"
+    r"(0\d{1,4}[-－ー\s]?\d{1,4}[-－ー\s]?\d{3,4})"
+)
+HYPHEN_PHONE_RE = re.compile(r"(0\d{1,4}[-－ー]\d{1,4}[-－ー]\d{3,4})")
 FAX_RE = re.compile(
     r"(?:ＦＡＸ番号|FAX番号|FAX|Fax|fax|ＦＡＸ|ファックス)[：:．.\s]*"
     r"([0-9０-９]{2,5}[-－ー\s]?[0-9０-９]{1,4}[-－ー\s]?[0-9０-９]{3,4})"
@@ -215,7 +220,9 @@ def _extract_emails(html: str) -> list[str]:
 
 
 def _extract_phones(text: str) -> list[str]:
-    return sorted(set(PHONE_RE.findall(text)))
+    normalized = unicodedata.normalize("NFKC", text).replace("ー", "-").replace("－", "-")
+    values = [*_normalize_numbers(LABELED_PHONE_RE.findall(normalized)), *_normalize_numbers(HYPHEN_PHONE_RE.findall(normalized))]
+    return _dedupe_values(values)
 
 
 def _extract_faxes(text: str) -> list[str]:
@@ -258,6 +265,10 @@ def _dedupe_values(values: list[str]) -> list[str]:
             seen.add(value)
             results.append(value)
     return results
+
+
+def _normalize_numbers(values: list[str]) -> list[str]:
+    return ["-".join(value.split()) for value in values]
 
 
 def _label_for(soup: BeautifulSoup, element) -> str:
