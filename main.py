@@ -186,10 +186,21 @@ def main() -> None:
 
     menu = st.sidebar.radio(
         "メニュー",
-        ["見込み客検索", "営業候補一覧", "提案文生成", "問い合わせフォーム確認", "送信管理", "活動履歴", "HELP"],
+        [
+            "かんたん営業フロー",
+            "見込み客検索",
+            "営業候補一覧",
+            "提案文生成",
+            "問い合わせフォーム確認",
+            "送信管理",
+            "活動履歴",
+            "HELP",
+        ],
     )
 
-    if menu == "見込み客検索":
+    if menu == "かんたん営業フロー":
+        render_easy_flow()
+    elif menu == "見込み客検索":
         render_search()
     elif menu == "営業候補一覧":
         render_companies()
@@ -302,6 +313,147 @@ def render_search() -> None:
         if removed_noise:
             st.info(f"求人サイトなど営業対象外の候補を{removed_noise}件除外しました。")
         show_dataframe(pd.DataFrame(companies))
+
+
+def render_easy_flow() -> None:
+    st.subheader("かんたん営業フロー")
+    st.caption("事務員さん向けの画面です。上から順番に押していけば、営業文の作成から送信記録までできます。")
+
+    rows = list_companies()
+    if not rows:
+        st.info("まず左メニューの「見込み客検索」で会社を保存してください。")
+        return
+
+    company = select_company(rows)
+    if not company:
+        return
+
+    proposals = list_proposals(company["id"])
+    latest_proposal = proposals[0] if proposals else None
+    counts = send_count_by_company()
+    send_count = counts.get(company["id"], 0)
+
+    render_flow_status(company, latest_proposal, send_count)
+
+    st.markdown("### 1. 連絡先を確認する")
+    st.write("まず、問い合わせフォーム・メール・FAXのどれかが使えるか確認します。")
+    contact_cols = st.columns(4)
+    contact_cols[0].metric("フォーム", "あり" if company["contact_url"] else "未確認")
+    contact_cols[1].metric("メール", "あり" if company["email"] else "未確認")
+    contact_cols[2].metric("FAX", "あり" if company["fax"] else "未確認")
+    contact_cols[3].metric("送信回数", send_count)
+
+    check_url = st.text_input(
+        "確認するURL",
+        value=company["contact_url"] or company["url"] or "",
+        help="通常はそのままで大丈夫です。公式サイトが別に分かる場合だけ変更してください。",
+    )
+    col_check, col_map = st.columns([1, 1])
+    if col_check.button("フォーム・FAXを確認する", type="primary", disabled=not bool(check_url), key=f"easy-check-{company['id']}"):
+        with st.spinner("問い合わせ先を確認しています。公式サイトも探します..."):
+            result = find_contact_for_company(company, check_url)
+            add_form_result(
+                company["id"],
+                result["form_url"],
+                result["fields"],
+                result["has_captcha"],
+                result["can_autofill"],
+                result["notes"],
+            )
+            email = first_real_email(result.get("emails", []))
+            fax = first_value(result.get("faxes", []))
+            if result["fields"]:
+                update_company_contact(company["id"], email=email, contact_url=result["form_url"], fax=fax)
+            elif email or fax:
+                update_company_contact(company["id"], email=email, fax=fax)
+        st.success("問い合わせ先を保存しました。次は文面を作成してください。")
+        st.rerun()
+    col_map.link_button("Google Mapで確認", company_maps_url(company))
+
+    st.markdown("### 2. 営業文を作る")
+    st.write("フォーム・メールで送る場合は通常文面、FAXで送る場合はFAX文面を作ります。")
+    col_proposal, col_fax = st.columns(2)
+    if col_proposal.button("フォーム・メール用の文面を作る", type="primary", key=f"easy-proposal-{company['id']}"):
+        with st.spinner("営業文を作成しています..."):
+            subject, message = generate_proposal(dict(company))
+            add_proposal(company["id"], subject, message)
+        st.success("文面を保存しました。")
+        st.rerun()
+    if col_fax.button("FAX用の文面を作る", key=f"easy-fax-{company['id']}"):
+        with st.spinner("FAX用の文面を作成しています..."):
+            subject, message = generate_fax_proposal(dict(company))
+            add_proposal(company["id"], subject, message)
+        st.success("FAX用の文面を保存しました。")
+        st.rerun()
+
+    if not latest_proposal:
+        st.info("まだ文面がありません。上のボタンで文面を作ってください。")
+        return
+
+    st.markdown("### 3. 内容を確認して送る")
+    st.write("件名と本文をコピーして、フォーム・メール・FAXのいずれかで送ります。")
+    st.text_input("件名", latest_proposal["subject"], key=f"easy-subject-{latest_proposal['id']}")
+    st.text_area("本文", latest_proposal["message"], height=260, key=f"easy-message-{latest_proposal['id']}")
+
+    send_cols = st.columns(3)
+    if company["contact_url"]:
+        send_cols[0].link_button("問い合わせフォームを開く", company["contact_url"])
+    else:
+        send_cols[0].info("フォームURL未取得")
+    if company["email"]:
+        send_cols[1].link_button("メール下書きを開く", build_mailto(company["email"], latest_proposal["subject"], latest_proposal["message"]))
+    else:
+        send_cols[1].info("メール未取得")
+    if company["fax"]:
+        send_cols[2].success(f"FAX番号: {company['fax']}")
+    else:
+        send_cols[2].info("FAX未取得")
+
+    st.code(f"件名: {latest_proposal['subject']}\n\n{latest_proposal['message']}", language="text")
+
+    st.markdown("### 4. 送ったら記録する")
+    st.write("実際に送信した後、必ずここで記録します。次回、いつ・どこに送ったか確認できます。")
+    col_channel, col_approach = st.columns(2)
+    channel = col_channel.selectbox(
+        "送信方法",
+        ["問い合わせフォーム", "メール", "FAX", "電話後フォロー", "その他"],
+        key=f"easy-channel-{latest_proposal['id']}",
+    )
+    approach = col_approach.selectbox(
+        "今回の切り口",
+        ["初回提案", "コスト安定", "欠車リスク対策", "繁忙期対応", "緊急配送", "定期便化", "再送フォロー"],
+        key=f"easy-approach-{latest_proposal['id']}",
+    )
+    note = st.text_input("メモ", placeholder="例: フォームから送信。返信待ち。", key=f"easy-note-{latest_proposal['id']}")
+    if st.button("送信済みに記録する", type="primary", key=f"easy-mark-sent-{latest_proposal['id']}"):
+        update_company_status(company["id"], "送信済み")
+        add_send_log(
+            company_id=company["id"],
+            proposal_id=latest_proposal["id"],
+            channel=channel,
+            approach=approach,
+            subject=latest_proposal["subject"],
+            message=latest_proposal["message"],
+            note=note or f"{channel}で送信",
+        )
+        add_activity(company["id"], "送信済み", note or f"{channel}で送信済みに記録")
+        st.success("送信履歴に記録しました。お疲れさまでした。")
+        st.rerun()
+
+
+def render_flow_status(company, latest_proposal, send_count: int) -> None:
+    contact_done = bool(company["contact_url"] or company["email"] or company["fax"])
+    proposal_done = bool(latest_proposal)
+    sent_done = send_count > 0 or company["status"] == "送信済み"
+    steps = [
+        ("1. 連絡先確認", contact_done),
+        ("2. 文面作成", proposal_done),
+        ("3. 送信", sent_done),
+        ("4. 記録", sent_done),
+    ]
+    cols = st.columns(4)
+    for col, (label, done) in zip(cols, steps):
+        col.success(f"{label}\n完了") if done else col.info(f"{label}\nこれから")
 
 
 def render_companies() -> None:
@@ -511,9 +663,10 @@ def render_forms() -> None:
             st.write(f"reCAPTCHA: {'あり' if form['has_captcha'] else 'なし'}")
             st.write(f"下書き自動入力候補: {'可' if form['can_autofill'] else '要確認'}")
             st.write(form["notes"] or "")
+            st.success("次にやること: 左メニューの「かんたん営業フロー」を開き、文面を作って送信してください。")
             fields = json.loads(form["fields_json"] or "[]")
             if fields:
-                show_dataframe(pd.DataFrame(fields))
+                show_form_fields(fields)
 
 
 def render_send_tools(company: dict, proposal: dict) -> None:
@@ -642,6 +795,20 @@ def show_dataframe(df: pd.DataFrame, columns: list[str] | None = None) -> None:
         hide_index=True,
         column_config=column_config,
     )
+
+
+def show_form_fields(fields: list[dict]) -> None:
+    df = pd.DataFrame(fields).rename(
+        columns={
+            "tag": "入力種類",
+            "name": "項目名",
+            "id": "ID",
+            "type": "入力タイプ",
+            "label": "画面表示",
+            "required": "必須",
+        }
+    )
+    st.dataframe(df, use_container_width=True, hide_index=True)
 
 
 def row_value(row, key: str, default=None):
