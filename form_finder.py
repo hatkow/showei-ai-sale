@@ -30,6 +30,10 @@ CONTACT_FIELD_HINTS = (
 )
 EMAIL_RE = re.compile(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}")
 PHONE_RE = re.compile(r"(?:0\d{1,4}[-\s]?\d{1,4}[-\s]?\d{3,4})")
+FAX_RE = re.compile(
+    r"(?:FAX|Fax|fax|ＦＡＸ|ファックス|ＦＡＸ番号|FAX番号)[：:\s]*"
+    r"([0-9０-９]{2,5}[-－ー\s]?[0-9０-９]{1,4}[-－ー\s]?[0-9０-９]{3,4})"
+)
 
 
 def find_contact_form(url: str) -> dict:
@@ -65,6 +69,7 @@ def find_contact_form(url: str) -> dict:
         has_captcha = _has_captcha(candidate_response.text, page_text)
         emails = _extract_emails(candidate_response.text)
         phones = _extract_phones(page_text)
+        faxes = _extract_faxes(page_text)
 
         if fields:
             return {
@@ -72,21 +77,25 @@ def find_contact_form(url: str) -> dict:
                 "fields": fields,
                 "emails": emails,
                 "phones": phones,
+                "faxes": faxes,
                 "has_captcha": has_captcha,
                 "can_autofill": not has_captcha,
-                "notes": _notes("問い合わせフォームを検出しました", emails, phones),
+                "notes": _notes("問い合わせフォームを検出しました", emails, phones, faxes),
             }
 
     emails = _extract_emails(response.text)
-    phones = _extract_phones(soup.get_text(" ", strip=True))
+    page_text = soup.get_text(" ", strip=True)
+    phones = _extract_phones(page_text)
+    faxes = _extract_faxes(page_text)
     return {
         "form_url": candidates[0],
         "fields": [],
         "emails": emails,
         "phones": phones,
+        "faxes": faxes,
         "has_captcha": _has_captcha(response.text, soup.get_text(" ", strip=True)),
         "can_autofill": False,
-        "notes": _notes("問い合わせフォームは見つかりませんでした", emails, phones),
+        "notes": _notes("問い合わせフォームは見つかりませんでした", emails, phones, faxes),
     }
 
 
@@ -199,13 +208,20 @@ def _extract_phones(text: str) -> list[str]:
     return sorted(set(PHONE_RE.findall(text)))
 
 
-def _notes(base: str, emails: list[str], phones: list[str]) -> str:
+def _extract_faxes(text: str) -> list[str]:
+    normalized = text.translate(str.maketrans("０１２３４５６７８９－ー", "0123456789--"))
+    return sorted({match.strip().replace(" ", "-") for match in FAX_RE.findall(normalized)})
+
+
+def _notes(base: str, emails: list[str], phones: list[str], faxes: list[str]) -> str:
     parts = [base]
     real_emails = [email for email in emails if "example." not in email.lower()]
     if real_emails:
         parts.append(f"メール候補: {', '.join(real_emails[:3])}")
     if phones:
         parts.append(f"電話候補: {', '.join(phones[:3])}")
+    if faxes:
+        parts.append(f"FAX候補: {', '.join(faxes[:3])}")
     return " / ".join(parts)
 
 

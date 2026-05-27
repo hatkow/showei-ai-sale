@@ -189,6 +189,7 @@ def render_companies() -> None:
                 "send_count",
                 "contact_url",
                 "email",
+                "fax",
                 "url",
             ]
         ],
@@ -273,19 +274,22 @@ def render_forms() -> None:
                         result["notes"],
                     )
                     email = first_real_email(result.get("emails", []))
+                    fax = first_value(result.get("faxes", []))
                     if result["fields"]:
                         update_company_contact(
                             row["id"],
                             email=email,
                             contact_url=result["form_url"],
+                            fax=fax,
                         )
-                    elif email:
-                        update_company_contact(row["id"], email=email)
+                    elif email or fax:
+                        update_company_contact(row["id"], email=email, fax=fax)
                     summary.append(
                         {
                             "会社名": row["name"],
                             "フォームURL": result["form_url"] if result["fields"] else "",
                             "メール": email or "",
+                            "FAX": fax or "",
                             "結果": result["notes"],
                         }
                     )
@@ -313,10 +317,11 @@ def render_forms() -> None:
                 result["notes"],
             )
             email = first_real_email(result.get("emails", []))
+            fax = first_value(result.get("faxes", []))
             if result["fields"]:
-                update_company_contact(company["id"], email=email, contact_url=result["form_url"])
-            elif email:
-                update_company_contact(company["id"], email=email)
+                update_company_contact(company["id"], email=email, contact_url=result["form_url"], fax=fax)
+            elif email or fax:
+                update_company_contact(company["id"], email=email, fax=fax)
         st.success("フォーム確認結果を保存しました。")
         st.rerun()
 
@@ -403,6 +408,10 @@ def first_real_email(emails: list[str]) -> str | None:
         if "example." not in email.lower():
             return email
     return None
+
+
+def first_value(values: list[str]) -> str | None:
+    return values[0] if values else None
 
 
 def render_send_management() -> None:

@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS companies (
     area TEXT,
     address TEXT,
     phone TEXT,
+    fax TEXT,
     email TEXT,
     contact_url TEXT,
     summary TEXT,
@@ -66,3 +67,5 @@ CREATE INDEX IF NOT EXISTS idx_proposals_company_id ON proposals(company_id);
 CREATE INDEX IF NOT EXISTS idx_activities_company_id ON activities(company_id);
 CREATE INDEX IF NOT EXISTS idx_send_logs_company_id ON send_logs(company_id);
 CREATE INDEX IF NOT EXISTS idx_send_logs_sent_at ON send_logs(sent_at DESC);
+
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS fax TEXT;

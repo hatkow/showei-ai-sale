@@ -56,6 +56,13 @@ def init_db() -> None:
 
     with get_connection() as conn:
         conn.executescript(SQLITE_SCHEMA)
+        _ensure_sqlite_columns(conn)
+
+
+def _ensure_sqlite_columns(conn) -> None:
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(companies)").fetchall()}
+    if "fax" not in existing:
+        conn.execute("ALTER TABLE companies ADD COLUMN fax TEXT")
 
 
 SQLITE_SCHEMA = """
@@ -67,6 +74,7 @@ CREATE TABLE IF NOT EXISTS companies (
     area TEXT,
     address TEXT,
     phone TEXT,
+    fax TEXT,
     email TEXT,
     contact_url TEXT,
     summary TEXT,
@@ -138,6 +146,7 @@ POSTGRES_SCHEMA = [
         area TEXT,
         address TEXT,
         phone TEXT,
+        fax TEXT,
         email TEXT,
         contact_url TEXT,
         summary TEXT,
@@ -149,6 +158,9 @@ POSTGRES_SCHEMA = [
         updated_at TEXT NOT NULL,
         UNIQUE(name, url)
     )
+    """,
+    """
+    ALTER TABLE companies ADD COLUMN IF NOT EXISTS fax TEXT
     """,
     """
     CREATE TABLE IF NOT EXISTS forms (
@@ -218,16 +230,17 @@ def upsert_companies(companies: Iterable[dict[str, Any]]) -> int:
                 conn,
                 """
                 INSERT INTO companies (
-                    name, url, industry, area, address, phone, email, contact_url,
+                    name, url, industry, area, address, phone, fax, email, contact_url,
                     summary, need_score, score_reason, suggested_offer, status,
                     created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, '未確認'), ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, '未確認'), ?, ?)
                 ON CONFLICT(name, url) DO UPDATE SET
                     industry=COALESCE(excluded.industry, companies.industry),
                     area=COALESCE(excluded.area, companies.area),
                     address=COALESCE(excluded.address, companies.address),
                     phone=COALESCE(excluded.phone, companies.phone),
+                    fax=COALESCE(excluded.fax, companies.fax),
                     email=COALESCE(excluded.email, companies.email),
                     contact_url=COALESCE(excluded.contact_url, companies.contact_url),
                     summary=COALESCE(excluded.summary, companies.summary),
@@ -243,6 +256,7 @@ def upsert_companies(companies: Iterable[dict[str, Any]]) -> int:
                     company.get("area"),
                     company.get("address"),
                     company.get("phone"),
+                    company.get("fax"),
                     company.get("email"),
                     company.get("contact_url"),
                     company.get("summary"),
@@ -290,6 +304,7 @@ def update_company_contact(
     company_id: int,
     email: str | None = None,
     contact_url: str | None = None,
+    fax: str | None = None,
 ) -> None:
     fields = ["updated_at = ?"]
     values: list[Any] = [now_iso()]
@@ -299,6 +314,9 @@ def update_company_contact(
     if contact_url is not None:
         fields.insert(0, "contact_url = NULLIF(?, '')")
         values.insert(0, contact_url)
+    if fax is not None:
+        fields.insert(0, "fax = NULLIF(?, '')")
+        values.insert(0, fax)
 
     values.append(company_id)
     with get_connection() as conn:
