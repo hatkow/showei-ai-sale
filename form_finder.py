@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from urllib.parse import urljoin, urlparse
 
 import requests
@@ -31,7 +32,7 @@ CONTACT_FIELD_HINTS = (
 EMAIL_RE = re.compile(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}")
 PHONE_RE = re.compile(r"(?:0\d{1,4}[-\s]?\d{1,4}[-\s]?\d{3,4})")
 FAX_RE = re.compile(
-    r"(?:FAX|Fax|fax|ＦＡＸ|ファックス|ＦＡＸ番号|FAX番号)[：:\s]*"
+    r"(?:ＦＡＸ番号|FAX番号|FAX|Fax|fax|ＦＡＸ|ファックス)[：:．.\s]*"
     r"([0-9０-９]{2,5}[-－ー\s]?[0-9０-９]{1,4}[-－ー\s]?[0-9０-９]{3,4})"
 )
 
@@ -52,8 +53,12 @@ def find_contact_form(url: str) -> dict:
         }
 
     soup = BeautifulSoup(response.text, "html.parser")
-    candidates.extend(_find_contact_links(url, soup))
+    base_text = soup.get_text(" ", strip=True)
+    base_emails = _extract_emails(response.text)
+    base_phones = _extract_phones(base_text)
+    base_faxes = _extract_faxes(base_text)
     candidates.extend(_common_contact_urls(url))
+    candidates.extend(_find_contact_links(url, soup))
 
     for candidate in _dedupe(candidates):
         if candidate in visited or not _same_site(url, candidate):
@@ -70,17 +75,20 @@ def find_contact_form(url: str) -> dict:
         emails = _extract_emails(candidate_response.text)
         phones = _extract_phones(page_text)
         faxes = _extract_faxes(page_text)
+        merged_emails = _dedupe_values([*emails, *base_emails])
+        merged_phones = _dedupe_values([*phones, *base_phones])
+        merged_faxes = _dedupe_values([*faxes, *base_faxes])
 
         if fields:
             return {
                 "form_url": candidate,
                 "fields": fields,
-                "emails": emails,
-                "phones": phones,
-                "faxes": faxes,
+                "emails": merged_emails,
+                "phones": merged_phones,
+                "faxes": merged_faxes,
                 "has_captcha": has_captcha,
                 "can_autofill": not has_captcha,
-                "notes": _notes("問い合わせフォームを検出しました", emails, phones, faxes),
+                "notes": _notes("問い合わせフォームを検出しました", merged_emails, merged_phones, merged_faxes),
             }
 
     emails = _extract_emails(response.text)
@@ -129,6 +137,8 @@ def _find_contact_links(base_url: str, soup: BeautifulSoup) -> list[str]:
             score += 50
         if "法人" in haystack or "企業" in haystack:
             score += 20
+        if "recruit" in haystack or "採用" in haystack or "求人" in haystack or "entry" in haystack:
+            score -= 160
         if "private" in haystack or "個人" in haystack or "引越" in haystack or "moving" in haystack:
             score -= 35
         if score > 0:
@@ -209,8 +219,8 @@ def _extract_phones(text: str) -> list[str]:
 
 
 def _extract_faxes(text: str) -> list[str]:
-    normalized = text.translate(str.maketrans("０１２３４５６７８９－ー", "0123456789--"))
-    return sorted({match.strip().replace(" ", "-") for match in FAX_RE.findall(normalized)})
+    normalized = unicodedata.normalize("NFKC", text).replace("ー", "-").replace("－", "-")
+    return _dedupe_values([match.strip().replace(" ", "-") for match in FAX_RE.findall(normalized)])
 
 
 def _notes(base: str, emails: list[str], phones: list[str], faxes: list[str]) -> str:
@@ -237,6 +247,16 @@ def _dedupe(urls: list[str]) -> list[str]:
         if normalized not in seen:
             seen.add(normalized)
             results.append(normalized)
+    return results
+
+
+def _dedupe_values(values: list[str]) -> list[str]:
+    seen = set()
+    results = []
+    for value in values:
+        if value and value not in seen:
+            seen.add(value)
+            results.append(value)
     return results
 
 

@@ -28,7 +28,7 @@ from db import (
     _execute,
 )
 from form_finder import find_contact_form
-from lead_search import search_companies
+from lead_search import find_company_website, search_companies
 from proposal_generator import generate_fax_proposal, generate_proposal, generate_resend_proposal
 
 try:
@@ -444,7 +444,7 @@ def render_forms() -> None:
                 summary = []
                 for index, row in enumerate(targets, start=1):
                     status_box.write(f"{index}/{len(targets)}: {row['name']} のフォームURLを確認中...")
-                    result = find_contact_form(row["url"])
+                    result = find_contact_for_company(row, row["url"])
                     add_form_result(
                         row["id"],
                         result["form_url"],
@@ -487,7 +487,7 @@ def render_forms() -> None:
     target_url = st.text_input("確認するURL", value=company["contact_url"] or company["url"] or "")
     if st.button("フォームを探す", type="primary", disabled=not bool(target_url)):
         with st.spinner("問い合わせページと入力項目を確認しています..."):
-            result = find_contact_form(target_url)
+            result = find_contact_for_company(company, target_url)
             add_form_result(
                 company["id"],
                 result["form_url"],
@@ -590,6 +590,33 @@ def cleanup_noise_once() -> None:
     st.session_state["noise_cleanup_done"] = True
     if deleted:
         st.success(f"求人サイトなど営業対象外の候補を{deleted}件削除しました。")
+
+
+def find_contact_for_company(company, target_url: str) -> dict:
+    urls = [target_url]
+    official_url = find_company_website(company["name"], company["area"] or "")
+    if official_url and official_url not in urls:
+        urls.append(official_url)
+
+    best_result = None
+    for url in urls:
+        if not url:
+            continue
+        result = find_contact_form(url)
+        if url != target_url:
+            result["notes"] = f"公式サイト候補から再確認: {url} / {result.get('notes', '')}"
+        if result.get("fields") and not _is_recruit_form(result.get("form_url", "")):
+            return result
+        if result.get("faxes") or result.get("emails"):
+            best_result = result
+        elif best_result is None:
+            best_result = result
+    return best_result or find_contact_form(target_url)
+
+
+def _is_recruit_form(url: str) -> bool:
+    lowered = url.lower()
+    return any(word in lowered for word in ("recruit", "entry", "saiyo", "saiyou"))
 
 
 def show_dataframe(df: pd.DataFrame, columns: list[str] | None = None) -> None:

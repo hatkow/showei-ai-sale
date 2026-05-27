@@ -26,6 +26,12 @@ EXCLUDED_DOMAINS = {
     "akitekt.net",
     "showei-service.com",
     "tayori.com",
+    "wikipedia.org",
+    "wiktionary.org",
+    "x.com",
+    "twitter.com",
+    "prtimes.jp",
+    "atpress.ne.jp",
     "xn--pckua2a7gp15089zb.com",
 }
 
@@ -159,28 +165,115 @@ def _search_organic_with_serper(keyword: str, area: str, num: int) -> list[dict]
 
 
 def _find_company_website(name: str, area: str) -> str | None:
-    query = (
-        f'"{name}" {area} 会社 '
-        "-求人 -採用 -転職 -就活 -仕事 -Baseconnect -doda -リクナビ -マイナビ"
-    )
+    query_name = _normalize_company_name(name)
+    place_url = _find_company_website_from_places(name, area)
+    if place_url:
+        return place_url
+
+    queries = [
+        query_name,
+        f"{query_name} ホームページ",
+        f"{query_name} 公式サイト",
+        f"{query_name} {area} 会社",
+    ]
+    candidates: list[tuple[int, int, str]] = []
+    for query_order, query in enumerate(queries):
+        candidates.extend(_search_company_website_candidates(query_name, query, query_order))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (item[0], -item[1]), reverse=True)
+    return candidates[0][2]
+
+
+def _find_company_website_from_places(name: str, area: str) -> str | None:
+    queries = [f"{name} {area}".strip(), name]
+    for query in queries:
+        try:
+            response = requests.post(
+                "https://google.serper.dev/places",
+                headers={"X-API-KEY": settings.serper_api_key, "Content-Type": "application/json"},
+                json={"q": query, "num": 5, "gl": "jp", "hl": "ja"},
+                timeout=20,
+            )
+            response.raise_for_status()
+        except requests.RequestException:
+            continue
+        for item in response.json().get("places", []):
+            url = item.get("website")
+            title = item.get("title", "")
+            if url and not _is_excluded_result(title, item.get("category", ""), url):
+                return url
+    return None
+
+
+def _search_company_website_candidates(company_name: str, query: str, query_order: int) -> list[tuple[int, int, str]]:
     try:
         response = requests.post(
             "https://google.serper.dev/search",
             headers={"X-API-KEY": settings.serper_api_key, "Content-Type": "application/json"},
-            json={"q": query, "num": 5, "gl": "jp", "hl": "ja"},
+            json={
+                "q": (
+                    f"{query} -求人 -採用 -転職 -就活 -仕事 -Baseconnect "
+                    "-doda -リクナビ -マイナビ -Wikipedia -Wiktionary"
+                ),
+                "num": 10,
+                "gl": "jp",
+                "hl": "ja",
+            },
             timeout=20,
         )
         response.raise_for_status()
     except requests.RequestException:
-        return None
+        return []
 
+    candidates: list[tuple[int, int, str]] = []
     for item in response.json().get("organic", []):
         url = item.get("link")
         title = item.get("title", "")
         snippet = item.get("snippet", "")
-        if url and not _is_excluded_result(title, snippet, url):
-            return url
-    return None
+        if not url or _is_excluded_result(title, snippet, url):
+            continue
+        score = _official_site_score(company_name, title, snippet, url)
+        if score > 0:
+            candidates.append((score, query_order, url))
+    return candidates
+
+
+def find_company_website(name: str, area: str) -> str | None:
+    if not settings.serper_api_key:
+        return None
+    return _find_company_website(name, area)
+
+
+def _normalize_company_name(name: str) -> str:
+    normalized = (
+        name.replace("（株）", "株式会社")
+        .replace("(株)", "株式会社")
+        .replace("㈱", "株式会社")
+        .replace("　", " ")
+    )
+    for branch_word in ("太田支店", "本社工場", "支店", "営業所", "工場", "本社", "オフィス"):
+        normalized = normalized.replace(branch_word, " ")
+    return " ".join(normalized.split())
+
+
+def _official_site_score(company_name: str, title: str, snippet: str, url: str) -> int:
+    parsed = urlparse(url)
+    domain = parsed.netloc.lower().removeprefix("www.")
+    text = f"{title} {snippet}".lower()
+    score = 0
+    if ".co.jp" in domain or ".jp" in domain:
+        score += 20
+    if "公式" in title or "公式" in snippet:
+        score += 30
+    for token in company_name.replace("株式会社", " ").split():
+        if token and token.lower() in text:
+            score += 40
+    if parsed.path in ("", "/"):
+        score += 10
+    if any(bad in text for bad in ("求人", "採用", "転職", "wiki", "辞書")):
+        score -= 80
+    return score
 
 
 def _place_summary(item: dict) -> str:
