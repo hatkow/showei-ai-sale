@@ -50,6 +50,7 @@ type Lead = {
   id: number;
   score: number;
   company: string;
+  industry: IndustryGenre;
   area: string;
   source: string;
   status: LeadStatus;
@@ -61,12 +62,48 @@ type Lead = {
 };
 type NavLabel = "受信箱" | "営業候補" | "地図検索" | "提案文" | "送信待ち" | "履歴";
 type SavedView = "フォームあり" | "ファックス候補あり" | "再送フォロー" | "地図情報未確認";
+type IndustryGenre =
+  | "建材・住宅設備"
+  | "食品製造・食品卸"
+  | "医療機器・医薬品"
+  | "電子部品・精密機器"
+  | "機械部品・金属加工"
+  | "自動車部品"
+  | "印刷・紙製品"
+  | "アパレル・繊維"
+  | "楽器・イベント機材"
+  | "化粧品・日用品"
+  | "冷凍冷蔵品"
+  | "店舗チェーン納品"
+  | "通信販売・倉庫出荷"
+  | "産業廃棄物・資源"
+  | "農産物・花き";
+
+const industryGenres = [
+  "すべて",
+  "建材・住宅設備",
+  "食品製造・食品卸",
+  "医療機器・医薬品",
+  "電子部品・精密機器",
+  "機械部品・金属加工",
+  "自動車部品",
+  "印刷・紙製品",
+  "アパレル・繊維",
+  "楽器・イベント機材",
+  "化粧品・日用品",
+  "冷凍冷蔵品",
+  "店舗チェーン納品",
+  "通信販売・倉庫出荷",
+  "産業廃棄物・資源",
+  "農産物・花き",
+] satisfies Array<IndustryGenre | "すべて">;
 
 const initialLeads: Lead[] = [
   {
     id: 1,
     score: 96,
     company: "清水建材工業",
+    industry: "建材・住宅設備",
     area: "群馬県高崎市",
     source: "地図掲載サイト",
     status: "フォームなし",
@@ -78,6 +115,7 @@ const initialLeads: Lead[] = [
     id: 2,
     score: 92,
     company: "AGF関東 食品工場",
+    industry: "食品製造・食品卸",
     area: "群馬県太田市",
     source: "問い合わせフォーム",
     status: "送信準備",
@@ -89,6 +127,7 @@ const initialLeads: Lead[] = [
     id: 3,
     score: 88,
     company: "栗原医療器械店 太田支店",
+    industry: "医療機器・医薬品",
     area: "群馬県太田市",
     source: "公式サイト",
     status: "ファックス候補あり",
@@ -100,6 +139,7 @@ const initialLeads: Lead[] = [
     id: 4,
     score: 81,
     company: "高崎精密部品センター",
+    industry: "電子部品・精密機器",
     area: "群馬県高崎市",
     source: "メール",
     status: "再送候補",
@@ -134,6 +174,7 @@ export default function Page() {
   const [activeMenu, setActiveMenu] = useState<NavLabel>("営業候補");
   const [activeView, setActiveView] = useState<SavedView | "なし">("なし");
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedIndustry, setSelectedIndustry] = useState<IndustryGenre | "すべて">("すべて");
 
   const selectedLead = leads.find((lead) => lead.id === selectedId) ?? leads[0];
   const visibleLeads = useMemo(() => {
@@ -153,11 +194,12 @@ export default function Page() {
         (activeView === "ファックス候補あり" && lead.status === "ファックス候補あり") ||
         (activeView === "再送フォロー" && lead.status === "再送候補") ||
         (activeView === "地図情報未確認" && !lead.source.includes("地図"));
-      const searchableText = `${lead.company} ${lead.area} ${lead.source} ${lead.offer} ${lead.status}`.toLowerCase();
+      const matchesIndustry = selectedIndustry === "すべて" || lead.industry === selectedIndustry;
+      const searchableText = `${lead.company} ${lead.industry} ${lead.area} ${lead.source} ${lead.offer} ${lead.status}`.toLowerCase();
       const matchesSearch = normalizedQuery.length === 0 || searchableText.includes(normalizedQuery);
-      return matchesStatus && matchesMenu && matchesView && matchesSearch;
+      return matchesStatus && matchesMenu && matchesView && matchesIndustry && matchesSearch;
     });
-  }, [activeMenu, activeView, filter, leads, searchQuery]);
+  }, [activeMenu, activeView, filter, leads, searchQuery, selectedIndustry]);
 
   function pushActivity(message: string) {
     setActivity((current) => [message, ...current].slice(0, 6));
@@ -193,6 +235,7 @@ export default function Page() {
       id,
       score: 74,
       company: `新規候補 ${id}`,
+      industry: selectedIndustry === "すべて" ? "建材・住宅設備" : selectedIndustry,
       area: "群馬県",
       source: "手動追加",
       status: "未確認",
@@ -218,6 +261,14 @@ export default function Page() {
     setNotice(`${view} の候補に絞り込みました。`);
   }
 
+  function selectIndustry(industry: IndustryGenre | "すべて") {
+    setSelectedIndustry(industry);
+    setActiveMenu("営業候補");
+    setActiveView("なし");
+    setFilter("すべて");
+    setNotice(industry === "すべて" ? "すべての業界ジャンルを表示しました。" : `${industry} の候補に絞り込みました。`);
+  }
+
   return (
     <main className={cn("min-h-screen bg-background text-foreground", theme)}>
       <div className="flex min-h-screen">
@@ -225,9 +276,11 @@ export default function Page() {
           activeMenu={activeMenu}
           activeView={activeView}
           searchQuery={searchQuery}
+          selectedIndustry={selectedIndustry}
           onMenuSelect={selectMenu}
           onSavedViewSelect={selectSavedView}
           onSearchChange={setSearchQuery}
+          onIndustryChange={selectIndustry}
         />
         <section className="flex min-w-0 flex-1 flex-col">
           <Topbar
@@ -239,6 +292,7 @@ export default function Page() {
             <Header
               activeMenu={activeMenu}
               searchQuery={searchQuery}
+              selectedIndustry={selectedIndustry}
               onRunActions={createProposal}
               onFilter={() => {
                 setActiveView("なし");
@@ -259,6 +313,7 @@ export default function Page() {
                   setActiveView("なし");
                   setFilter("すべて");
                   setSearchQuery("");
+                  setSelectedIndustry("すべて");
                 }}
               />
               <CommandPanel
@@ -277,6 +332,7 @@ export default function Page() {
                   setActiveView("なし");
                   setFilter("すべて");
                   setSearchQuery("");
+                  setSelectedIndustry("すべて");
                 }}
               />
             </div>
@@ -291,16 +347,20 @@ function Sidebar({
   activeMenu,
   activeView,
   searchQuery,
+  selectedIndustry,
   onMenuSelect,
   onSavedViewSelect,
   onSearchChange,
+  onIndustryChange,
 }: {
   activeMenu: NavLabel;
   activeView: SavedView | "なし";
   searchQuery: string;
+  selectedIndustry: IndustryGenre | "すべて";
   onMenuSelect: (label: NavLabel) => void;
   onSavedViewSelect: (view: SavedView) => void;
   onSearchChange: (value: string) => void;
+  onIndustryChange: (value: IndustryGenre | "すべて") => void;
 }) {
   return (
     <aside className="flex w-[248px] shrink-0 flex-col border-r border-border bg-black/20 lg:w-[264px]">
@@ -314,8 +374,20 @@ function Sidebar({
         </div>
       </div>
       <div className="flex-1 space-y-5 px-3 py-4">
-        <div className="rounded-lg border border-border bg-muted/20 p-2">
-          <label className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm">
+        <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-2">
+          <label className="block space-y-1.5">
+            <span className="px-2 text-xs font-medium text-muted-foreground">業界ジャンル</span>
+            <select
+              value={selectedIndustry}
+              onChange={(event) => onIndustryChange(event.target.value as IndustryGenre | "すべて")}
+              className="h-9 w-full rounded-md border border-border bg-background px-2 text-sm text-foreground outline-none"
+            >
+              {industryGenres.map((genre) => (
+                <option key={genre}>{genre}</option>
+              ))}
+            </select>
+          </label>
+          <label className="flex items-center gap-2 rounded-md border border-border bg-background px-2 py-1.5 text-sm">
             <Search className="size-4 text-muted-foreground" />
             <input
               value={searchQuery}
@@ -418,14 +490,21 @@ function Topbar({
 function Header({
   activeMenu,
   searchQuery,
+  selectedIndustry,
   onRunActions,
   onFilter,
 }: {
   activeMenu: NavLabel;
   searchQuery: string;
+  selectedIndustry: IndustryGenre | "すべて";
   onRunActions: () => void;
   onFilter: () => void;
 }) {
+  const conditionText = [
+    selectedIndustry !== "すべて" ? `業界「${selectedIndustry}」` : null,
+    searchQuery ? `キーワード「${searchQuery}」` : null,
+  ].filter(Boolean).join("、");
+
   return (
     <section className="flex flex-col gap-4 rounded-lg border border-border bg-card/55 p-5 shadow-glow lg:flex-row lg:items-center lg:justify-between">
       <div className="min-w-0">
@@ -440,8 +519,8 @@ function Header({
           {activeMenu === "営業候補" ? "営業スタッフなしで回る、物流営業ダッシュボード" : `${activeMenu}を確認`}
         </h1>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
-          {searchQuery
-            ? `「${searchQuery}」に一致する候補を表示しています。`
+          {conditionText
+            ? `${conditionText}に一致する候補を表示しています。`
             : "地図掲載サイト、問い合わせフォーム、ファックス、メール、送信履歴を一つの作業列に統合します。事務員さんが空き時間に迷わず送信まで進められる管理画面です。"}
         </p>
       </div>
@@ -534,9 +613,10 @@ function LeadTable({
         </div>
       </CardHeader>
       <CardContent className="p-0">
-        <div className="grid grid-cols-[72px_1.45fr_1fr_1fr_112px_116px] border-b border-border px-4 py-2 text-xs text-muted-foreground">
+        <div className="grid grid-cols-[64px_1.35fr_.95fr_.95fr_1fr_112px_112px] border-b border-border px-4 py-2 text-xs text-muted-foreground">
           <span>点数</span>
           <span>会社名</span>
+          <span>業界</span>
           <span>取得元</span>
           <span>提案内容</span>
           <span>状態</span>
@@ -560,7 +640,7 @@ function LeadTable({
             key={lead.id}
             onClick={() => onSelect(lead.id)}
             className={cn(
-              "grid w-full grid-cols-[72px_1.45fr_1fr_1fr_112px_116px] items-center border-b border-border/70 px-4 py-3 text-left text-sm transition-colors last:border-b-0 hover:bg-white/[.035]",
+              "grid w-full grid-cols-[64px_1.35fr_.95fr_.95fr_1fr_112px_112px] items-center border-b border-border/70 px-4 py-3 text-left text-sm transition-colors last:border-b-0 hover:bg-white/[.035]",
               selectedId === lead.id && "bg-primary/8",
             )}
           >
@@ -572,6 +652,7 @@ function LeadTable({
                 {lead.area}
               </div>
             </div>
+            <div className="truncate text-muted-foreground">{lead.industry}</div>
             <div className="flex items-center gap-2 text-muted-foreground">
               <ExternalLink className="size-4" />
               <span className="truncate">{lead.source}</span>
