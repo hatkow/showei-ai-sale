@@ -56,9 +56,13 @@ type Lead = {
   status: LeadStatus;
   next: string;
   offer: string;
+  url?: string;
   formUrl?: string;
   fax?: string;
   email?: string;
+  address?: string;
+  phone?: string;
+  summary?: string;
 };
 type NavLabel = "受信箱" | "営業候補" | "地図検索" | "提案文" | "送信待ち" | "履歴";
 type SavedView = "フォームあり" | "ファックス候補あり" | "再送フォロー" | "地図情報未確認";
@@ -160,6 +164,27 @@ const nav = [
 
 const savedViews: SavedView[] = ["フォームあり", "ファックス候補あり", "再送フォロー", "地図情報未確認"];
 
+function normalizeIndustry(value: string): IndustryGenre {
+  return industryGenres.includes(value as IndustryGenre) && value !== "すべて" ? (value as IndustryGenre) : "自動車部品";
+}
+
+function normalizeStatus(value: string): LeadStatus {
+  return ["未確認", "送信準備", "フォームなし", "ファックス候補あり", "送信済み", "再送候補"].includes(value)
+    ? (value as LeadStatus)
+    : "未確認";
+}
+
+function mergeLeads(incoming: Lead[], current: Lead[]) {
+  const existing = new Set(current.map((lead) => `${lead.company}-${lead.area}`));
+  const fresh = incoming.filter((lead) => {
+    const key = `${lead.company}-${lead.area}`;
+    if (existing.has(key)) return false;
+    existing.add(key);
+    return true;
+  });
+  return [...fresh, ...current];
+}
+
 export default function Page() {
   const [leads, setLeads] = useState(initialLeads);
   const [selectedId, setSelectedId] = useState(initialLeads[1].id);
@@ -177,6 +202,9 @@ export default function Page() {
   const [selectedIndustry, setSelectedIndustry] = useState<IndustryGenre | "すべて">("すべて");
   const [draftSearchQuery, setDraftSearchQuery] = useState("");
   const [draftIndustry, setDraftIndustry] = useState<IndustryGenre | "すべて">("すべて");
+  const [draftArea, setDraftArea] = useState("群馬県");
+  const [draftLimit, setDraftLimit] = useState(10);
+  const [isCollecting, setIsCollecting] = useState(false);
 
   const selectedLead = leads.find((lead) => lead.id === selectedId) ?? leads[0];
   const visibleLeads = useMemo(() => {
@@ -263,7 +291,7 @@ export default function Page() {
     setNotice(`${view} の候補に絞り込みました。`);
   }
 
-  function submitSearch() {
+  async function submitSearch() {
     setSelectedIndustry(draftIndustry);
     setSearchQuery(draftSearchQuery);
     setActiveMenu("営業候補");
@@ -273,7 +301,47 @@ export default function Page() {
       draftIndustry !== "すべて" ? draftIndustry : null,
       draftSearchQuery.trim() ? `キーワード「${draftSearchQuery.trim()}」` : null,
     ].filter(Boolean);
-    setNotice(conditions.length ? `${conditions.join("、")} で検索しました。` : "すべての候補を表示しました。");
+    setIsCollecting(true);
+    setNotice(conditions.length ? `${conditions.join("、")} で企業情報を収集しています。` : "企業情報を収集しています。");
+    try {
+      const response = await fetch("/api/collect-leads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          industry: draftIndustry === "すべて" ? "自動車部品" : draftIndustry,
+          area: draftArea,
+          keyword: draftSearchQuery,
+          limit: draftLimit,
+        }),
+      });
+      const data = await response.json();
+      const nextId = Math.max(...leads.map((lead) => lead.id), 0) + 1;
+      const collected: Lead[] = (data.leads || []).map((lead: Record<string, unknown>, index: number) => ({
+        id: nextId + index,
+        score: Number(lead.score || 70),
+        company: String(lead.name || `収集候補 ${nextId + index}`),
+        industry: normalizeIndustry(String(lead.industry || draftIndustry || "自動車部品")),
+        area: String(lead.area || draftArea),
+        source: String(lead.source || "企業情報収集"),
+        status: normalizeStatus(String(lead.status || "未確認")),
+        next: String(lead.next || "連絡先確認"),
+        offer: String(lead.offer || "定期便・ルート便の提案"),
+        url: String(lead.url || ""),
+        formUrl: typeof lead.contactUrl === "string" ? lead.contactUrl : undefined,
+        fax: typeof lead.fax === "string" ? lead.fax : undefined,
+        email: typeof lead.email === "string" ? lead.email : undefined,
+        address: typeof lead.address === "string" ? lead.address : undefined,
+        phone: typeof lead.phone === "string" ? lead.phone : undefined,
+        summary: typeof lead.summary === "string" ? lead.summary : undefined,
+      }));
+      setLeads((current) => mergeLeads(collected, current));
+      if (collected[0]) setSelectedId(collected[0].id);
+      pushActivity(data.message || `${collected.length}件の企業候補を収集しました`);
+    } catch {
+      setNotice("企業情報の収集中にエラーが発生しました。APIキーと通信状況を確認してください。");
+    } finally {
+      setIsCollecting(false);
+    }
   }
 
   return (
@@ -284,10 +352,15 @@ export default function Page() {
           activeView={activeView}
           searchQuery={draftSearchQuery}
           selectedIndustry={draftIndustry}
+          area={draftArea}
+          limit={draftLimit}
+          isCollecting={isCollecting}
           onMenuSelect={selectMenu}
           onSavedViewSelect={selectSavedView}
           onSearchChange={setDraftSearchQuery}
           onIndustryChange={setDraftIndustry}
+          onAreaChange={setDraftArea}
+          onLimitChange={setDraftLimit}
           onSearchSubmit={submitSearch}
         />
         <section className="flex min-w-0 flex-1 flex-col">
@@ -324,6 +397,8 @@ export default function Page() {
                   setSelectedIndustry("すべて");
                   setDraftSearchQuery("");
                   setDraftIndustry("すべて");
+                  setDraftArea("群馬県");
+                  setDraftLimit(10);
                 }}
               />
               <CommandPanel
@@ -345,6 +420,8 @@ export default function Page() {
                   setSelectedIndustry("すべて");
                   setDraftSearchQuery("");
                   setDraftIndustry("すべて");
+                  setDraftArea("群馬県");
+                  setDraftLimit(10);
                 }}
               />
             </div>
@@ -360,20 +437,30 @@ function Sidebar({
   activeView,
   searchQuery,
   selectedIndustry,
+  area,
+  limit,
+  isCollecting,
   onMenuSelect,
   onSavedViewSelect,
   onSearchChange,
   onIndustryChange,
+  onAreaChange,
+  onLimitChange,
   onSearchSubmit,
 }: {
   activeMenu: NavLabel;
   activeView: SavedView | "なし";
   searchQuery: string;
   selectedIndustry: IndustryGenre | "すべて";
+  area: string;
+  limit: number;
+  isCollecting: boolean;
   onMenuSelect: (label: NavLabel) => void;
   onSavedViewSelect: (view: SavedView) => void;
   onSearchChange: (value: string) => void;
   onIndustryChange: (value: IndustryGenre | "すべて") => void;
+  onAreaChange: (value: string) => void;
+  onLimitChange: (value: number) => void;
   onSearchSubmit: () => void;
 }) {
   return (
@@ -406,13 +493,33 @@ function Sidebar({
             <input
               value={searchQuery}
               onChange={(event) => onSearchChange(event.target.value)}
-              placeholder="会社名・地域で検索"
+              placeholder="追加キーワード"
               className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
             />
           </label>
-          <Button className="w-full" onClick={onSearchSubmit}>
+          <label className="block space-y-1.5">
+            <span className="px-2 text-xs font-medium text-muted-foreground">検索エリア</span>
+            <input
+              value={area}
+              onChange={(event) => onAreaChange(event.target.value)}
+              placeholder="群馬県"
+              className="h-9 w-full rounded-md border border-border bg-background px-2 text-sm text-foreground outline-none placeholder:text-muted-foreground"
+            />
+          </label>
+          <label className="block space-y-1.5">
+            <span className="px-2 text-xs font-medium text-muted-foreground">取得件数</span>
+            <input
+              value={limit}
+              min={1}
+              max={30}
+              type="number"
+              onChange={(event) => onLimitChange(Number(event.target.value))}
+              className="h-9 w-full rounded-md border border-border bg-background px-2 text-sm text-foreground outline-none"
+            />
+          </label>
+          <Button className="w-full bg-red-500 text-white hover:bg-red-400" onClick={onSearchSubmit} disabled={isCollecting}>
             <Search />
-            この条件で検索
+            {isCollecting ? "収集中..." : "企業情報を収集する"}
           </Button>
         </div>
         <nav className="space-y-1">
