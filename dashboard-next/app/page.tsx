@@ -190,6 +190,16 @@ function mergeLeads(incoming: Lead[], current: Lead[]) {
   return [...fresh, ...current];
 }
 
+function isRealContactUrl(url?: string) {
+  if (!url) return false;
+  try {
+    const host = new URL(url).hostname.replace(/^www\./, "");
+    return !host.endsWith("example.jp") && !host.endsWith("example.com");
+  } catch {
+    return false;
+  }
+}
+
 function buildProposalDraft(lead: Lead): ProposalDraft {
   const channel = lead.fax ? "ファックス送信用" : lead.formUrl ? "問い合わせフォーム用" : "営業連絡用";
   const strength = lead.industry.includes("自動車")
@@ -281,9 +291,8 @@ export default function Page() {
     updateSelectedLead({
       source: "地図掲載サイト",
       status: selectedLead.status === "未確認" ? "送信準備" : selectedLead.status,
-      formUrl: selectedLead.formUrl ?? "https://example.jp/contact",
     });
-    pushActivity(`${selectedLead.company} の地図掲載サイトアドレスを取得しました`);
+    pushActivity(`${selectedLead.company} の地図情報を確認しました。フォームURLは実取得できた場合だけ表示します。`);
   }
 
   function createProposal() {
@@ -854,7 +863,7 @@ function CommandPanel({
 }) {
   const steps = [
     { title: "地図掲載サイトアドレスを取得", desc: "地図情報だけの候補から掲載サイトを補完", icon: MapPin, done: lead.source.includes("地図") },
-    { title: "フォーム・ファックスを確認", desc: "問い合わせ先を保存", icon: Phone, done: Boolean(lead.formUrl || lead.fax || lead.email) },
+    { title: "フォーム・ファックスを確認", desc: "問い合わせ先を保存", icon: Phone, done: Boolean(isRealContactUrl(lead.formUrl) || lead.fax || lead.email) },
     { title: "営業文面を作成", desc: "フォーム用またはファックス用を選んで生成", icon: Bot, done: lead.status === "送信準備" || lead.status === "送信済み" },
     { title: "送信済みに記録", desc: "送信方法、切り口、メモを履歴化", icon: Clock3, done: lead.status === "送信済み" },
   ];
@@ -912,7 +921,7 @@ function CommandPanel({
               />
             </label>
             <div className="mt-3 grid gap-2 sm:grid-cols-2">
-              {lead.formUrl ? (
+              {isRealContactUrl(lead.formUrl) ? (
                 <Button asChild>
                   <a href={lead.formUrl} target="_blank" rel="noreferrer">
                     フォームを開く

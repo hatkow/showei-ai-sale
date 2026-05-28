@@ -271,7 +271,7 @@ function sampleLeads(industry: string, area: string, limit: number) {
       name: `${area} ${industry} サンプル工場`,
       industry,
       area,
-      url: "https://example.jp/company",
+      url: "",
       source: "サンプル",
       status: "未確認",
       score: 72,
