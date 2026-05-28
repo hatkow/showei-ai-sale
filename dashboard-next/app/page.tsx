@@ -64,6 +64,11 @@ type Lead = {
   phone?: string;
   summary?: string;
 };
+type ProposalDraft = {
+  leadId: number;
+  subject: string;
+  message: string;
+};
 type NavLabel = "受信箱" | "営業候補" | "地図検索" | "提案文" | "送信待ち" | "履歴";
 type SavedView = "フォームあり" | "ファックス候補あり" | "再送フォロー" | "地図情報未確認";
 type IndustryGenre =
@@ -185,6 +190,37 @@ function mergeLeads(incoming: Lead[], current: Lead[]) {
   return [...fresh, ...current];
 }
 
+function buildProposalDraft(lead: Lead): ProposalDraft {
+  const channel = lead.fax ? "ファックス送信用" : lead.formUrl ? "問い合わせフォーム用" : "営業連絡用";
+  const strength = lead.industry.includes("自動車")
+    ? "工場間輸送や部品納品の定期便化、欠車リスク対策"
+    : lead.industry.includes("食品")
+      ? "店舗納品や温度帯に応じた定期配送"
+      : lead.industry.includes("医療")
+        ? "医療機器の安全な定期納品と緊急配送"
+        : lead.offer;
+
+  return {
+    leadId: lead.id,
+    subject: `配送体制のご相談（${channel}）`,
+    message: `${lead.company} ご担当者様
+
+突然のご連絡失礼いたします。
+有限会社翔栄サービスの原田と申します。
+
+弊社は群馬県を拠点に、定期便・ルート便・スポット便・緊急配送を行っている運送会社です。
+貴社の${lead.industry}に関する配送で、${strength}の面でお役に立てる可能性があると思い、ご連絡いたしました。
+
+小ロットの定期配送、工場間輸送、急な増便や欠車時の代替便など、現在の配送体制でお困りの点がございましたら、一度状況を伺えますと幸いです。
+
+ご多忙のところ恐縮ですが、配送のご相談先としてご検討いただけますでしょうか。
+
+有限会社翔栄サービス
+担当: 原田 裕士
+TEL: 0270-64-2429`,
+  };
+}
+
 export default function Page() {
   const [leads, setLeads] = useState(initialLeads);
   const [selectedId, setSelectedId] = useState(initialLeads[1].id);
@@ -205,6 +241,7 @@ export default function Page() {
   const [draftArea, setDraftArea] = useState("群馬県");
   const [draftLimit, setDraftLimit] = useState(10);
   const [isCollecting, setIsCollecting] = useState(false);
+  const [proposalDraft, setProposalDraft] = useState<ProposalDraft | null>(null);
 
   const selectedLead = leads.find((lead) => lead.id === selectedId) ?? leads[0];
   const visibleLeads = useMemo(() => {
@@ -251,6 +288,7 @@ export default function Page() {
 
   function createProposal() {
     updateSelectedLead({ status: "送信準備", next: "送信" });
+    setProposalDraft(buildProposalDraft(selectedLead));
     pushActivity(`${selectedLead.company} の営業文を作成しました`);
   }
 
@@ -403,8 +441,10 @@ export default function Page() {
               />
               <CommandPanel
                 lead={selectedLead}
+                draft={proposalDraft?.leadId === selectedLead.id ? proposalDraft : null}
                 onMapLookup={runMapLookup}
                 onCreateProposal={createProposal}
+                onDraftChange={setProposalDraft}
                 onMarkSent={markSent}
               />
             </div>
@@ -799,13 +839,17 @@ function LeadTable({
 
 function CommandPanel({
   lead,
+  draft,
   onMapLookup,
   onCreateProposal,
+  onDraftChange,
   onMarkSent,
 }: {
   lead: Lead;
+  draft: ProposalDraft | null;
   onMapLookup: () => void;
   onCreateProposal: () => void;
+  onDraftChange: (draft: ProposalDraft) => void;
   onMarkSent: () => void;
 }) {
   const steps = [
@@ -841,6 +885,59 @@ function CommandPanel({
           <Button variant="outline" onClick={onCreateProposal}>文面作成</Button>
           <Button onClick={onMarkSent}>送信済みにする</Button>
         </div>
+        {draft ? (
+          <div className="rounded-lg border border-primary/25 bg-primary/8 p-3">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <div>
+                <div className="text-sm font-semibold">作成された営業文</div>
+                <p className="mt-1 text-xs text-muted-foreground">送信前に内容を確認し、必要に応じて修正できます。</p>
+              </div>
+              <Badge variant="success">確認待ち</Badge>
+            </div>
+            <label className="block space-y-1.5">
+              <span className="text-xs font-medium text-muted-foreground">件名</span>
+              <input
+                value={draft.subject}
+                onChange={(event) => onDraftChange({ ...draft, subject: event.target.value })}
+                className="h-9 w-full rounded-md border border-border bg-background px-2 text-sm text-foreground outline-none"
+              />
+            </label>
+            <label className="mt-3 block space-y-1.5">
+              <span className="text-xs font-medium text-muted-foreground">本文</span>
+              <textarea
+                value={draft.message}
+                onChange={(event) => onDraftChange({ ...draft, message: event.target.value })}
+                rows={13}
+                className="w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-sm leading-6 text-foreground outline-none"
+              />
+            </label>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              {lead.formUrl ? (
+                <Button asChild>
+                  <a href={lead.formUrl} target="_blank" rel="noreferrer">
+                    フォームを開く
+                    <ExternalLink />
+                  </a>
+                </Button>
+              ) : (
+                <Button variant="outline" disabled>フォーム未取得</Button>
+              )}
+              {lead.fax ? (
+                <div className="flex h-9 items-center rounded-md border border-border bg-background px-3 text-sm">
+                  送付先: {lead.fax}
+                </div>
+              ) : (
+                <div className="flex h-9 items-center rounded-md border border-border bg-background px-3 text-sm text-muted-foreground">
+                  ファックス未取得
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-lg border border-dashed border-border bg-background/30 p-4 text-sm text-muted-foreground">
+            「文面作成」を押すと、ここに件名と本文が表示されます。
+          </div>
+        )}
       </CardContent>
     </Card>
   );
