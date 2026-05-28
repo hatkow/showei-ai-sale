@@ -1,3 +1,6 @@
+"use client";
+
+import { useMemo, useState } from "react";
 import {
   Activity,
   Archive,
@@ -5,7 +8,6 @@ import {
   Bot,
   Building2,
   CheckCircle2,
-  ChevronDown,
   Circle,
   ClipboardCheck,
   Clock3,
@@ -18,7 +20,6 @@ import {
   Gauge,
   Inbox,
   Layers3,
-  Mail,
   MapPin,
   MessageSquareText,
   Moon,
@@ -44,85 +45,174 @@ import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 
-const nav = [
-  { label: "Inbox", icon: Inbox, count: "12" },
-  { label: "Pipeline", icon: Layers3, active: true, count: "48" },
-  { label: "Map Finder", icon: Radar },
-  { label: "Proposals", icon: FileText },
-  { label: "Send Queue", icon: Send, count: "7" },
-  { label: "Records", icon: Archive },
-];
+type LeadStatus = "未確認" | "送信準備" | "フォームなし" | "ファックス候補あり" | "送信済み" | "再送候補";
+type Lead = {
+  id: number;
+  score: number;
+  company: string;
+  area: string;
+  source: string;
+  status: LeadStatus;
+  next: string;
+  offer: string;
+  formUrl?: string;
+  fax?: string;
+  email?: string;
+};
 
-const leads = [
+const initialLeads: Lead[] = [
   {
+    id: 1,
     score: 96,
     company: "清水建材工業",
     area: "群馬県高崎市",
-    channel: "Google Map掲載サイト",
+    source: "地図掲載サイト",
     status: "フォームなし",
     next: "電話確認",
     offer: "建材・残土配送の定期便化",
+    fax: "",
   },
   {
+    id: 2,
     score: 92,
     company: "AGF関東 食品工場",
     area: "群馬県太田市",
-    channel: "問い合わせフォーム",
+    source: "問い合わせフォーム",
     status: "送信準備",
     next: "文面確認",
     offer: "店舗納品・温度帯配送",
+    formUrl: "https://agf.ajinomoto.co.jp/inquiry/",
   },
   {
+    id: 3,
     score: 88,
     company: "栗原医療器械店 太田支店",
     area: "群馬県太田市",
-    channel: "公式サイト",
-    status: "FAX候補あり",
-    next: "FAX送付",
+    source: "公式サイト",
+    status: "ファックス候補あり",
+    next: "ファックス送付",
     offer: "医療機器の欠車リスク対策",
+    fax: "0276-37-8557",
   },
   {
+    id: 4,
     score: 81,
     company: "高崎精密部品センター",
     area: "群馬県高崎市",
-    channel: "メール",
+    source: "メール",
     status: "再送候補",
     next: "別切り口",
     offer: "工場間輸送・スポット便",
+    email: "sales@example.jp",
   },
 ];
 
-const flow = [
-  { label: "Google Map情報取得", value: 82, icon: MapPin },
-  { label: "フォーム/FAX確認", value: 64, icon: ClipboardCheck },
-  { label: "AI文面作成", value: 48, icon: Bot },
-  { label: "送信記録", value: 37, icon: Database },
+const nav = [
+  { label: "受信箱", icon: Inbox, count: "12" },
+  { label: "営業候補", icon: Layers3, active: true, count: "48" },
+  { label: "地図検索", icon: Radar },
+  { label: "提案文", icon: FileText },
+  { label: "送信待ち", icon: Send, count: "7" },
+  { label: "履歴", icon: Archive },
 ];
 
-const recent = [
-  { title: "AGF関東へフォーム送信", time: "4分前", tone: "sent" },
-  { title: "清水建材工業の掲載サイトURLを取得", time: "17分前", tone: "map" },
-  { title: "栗原医療器械店のFAX候補を保存", time: "31分前", tone: "fax" },
-  { title: "求人サイト候補を3件除外", time: "1時間前", tone: "clean" },
-];
+const savedViews = ["フォームあり", "ファックス候補あり", "再送フォロー", "地図情報未確認"];
 
 export default function Page() {
+  const [leads, setLeads] = useState(initialLeads);
+  const [selectedId, setSelectedId] = useState(initialLeads[1].id);
+  const [activity, setActivity] = useState([
+    "AGF関東 食品工場の問い合わせフォームを確認しました",
+    "清水建材工業の地図掲載サイトアドレスを取得しました",
+    "栗原医療器械店 太田支店のファックス候補を保存しました",
+  ]);
+  const [filter, setFilter] = useState<LeadStatus | "すべて">("すべて");
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const [notice, setNotice] = useState("操作した内容がここに表示されます。");
+
+  const selectedLead = leads.find((lead) => lead.id === selectedId) ?? leads[0];
+  const visibleLeads = useMemo(
+    () => (filter === "すべて" ? leads : leads.filter((lead) => lead.status === filter)),
+    [filter, leads],
+  );
+
+  function pushActivity(message: string) {
+    setActivity((current) => [message, ...current].slice(0, 6));
+    setNotice(message);
+  }
+
+  function updateSelectedLead(next: Partial<Lead>) {
+    setLeads((current) => current.map((lead) => (lead.id === selectedId ? { ...lead, ...next } : lead)));
+  }
+
+  function runMapLookup() {
+    updateSelectedLead({
+      source: "地図掲載サイト",
+      status: selectedLead.status === "未確認" ? "送信準備" : selectedLead.status,
+      formUrl: selectedLead.formUrl ?? "https://example.jp/contact",
+    });
+    pushActivity(`${selectedLead.company} の地図掲載サイトアドレスを取得しました`);
+  }
+
+  function createProposal() {
+    updateSelectedLead({ status: "送信準備", next: "送信" });
+    pushActivity(`${selectedLead.company} の営業文を作成しました`);
+  }
+
+  function markSent() {
+    updateSelectedLead({ status: "送信済み", next: "再送管理" });
+    pushActivity(`${selectedLead.company} を送信済みに記録しました`);
+  }
+
+  function addLead() {
+    const id = Math.max(...leads.map((lead) => lead.id)) + 1;
+    const newLead: Lead = {
+      id,
+      score: 74,
+      company: `新規候補 ${id}`,
+      area: "群馬県",
+      source: "手動追加",
+      status: "未確認",
+      next: "連絡先確認",
+      offer: "定期便・スポット便の提案",
+    };
+    setLeads((current) => [newLead, ...current]);
+    setSelectedId(id);
+    pushActivity(`${newLead.company} を追加しました`);
+  }
+
   return (
-    <main className="min-h-screen bg-background text-foreground">
+    <main className={cn("min-h-screen bg-background text-foreground", theme)}>
       <div className="flex min-h-screen">
         <Sidebar />
         <section className="flex min-w-0 flex-1 flex-col">
-          <Topbar />
+          <Topbar
+            theme={theme}
+            onToggleTheme={() => setTheme(theme === "dark" ? "light" : "dark")}
+            onAddLead={addLead}
+          />
           <div className="mx-auto flex w-full max-w-[1480px] flex-1 flex-col gap-5 px-5 py-5 lg:px-7">
-            <Header />
-            <KpiGrid />
+            <Header onRunActions={createProposal} onFilter={() => setFilter(filter === "すべて" ? "送信準備" : "すべて")} />
+            <Notice text={notice} />
+            <KpiGrid leads={leads} />
             <div className="grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(360px,.95fr)]">
-              <LeadTable />
-              <CommandPanel />
+              <LeadTable
+                leads={visibleLeads}
+                selectedId={selectedId}
+                filter={filter}
+                onFilterChange={setFilter}
+                onSelect={setSelectedId}
+              />
+              <CommandPanel
+                lead={selectedLead}
+                onMapLookup={runMapLookup}
+                onCreateProposal={createProposal}
+                onMarkSent={markSent}
+              />
             </div>
             <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
-              <WorkflowBoard />
-              <EmptyState />
+              <WorkflowBoard activity={activity} leads={leads} />
+              <EmptyState onAddLead={addLead} onResetFilter={() => setFilter("すべて")} />
             </div>
           </div>
         </section>
@@ -139,16 +229,18 @@ function Sidebar() {
           <Truck className="size-4" />
         </div>
         <div className="min-w-0">
-          <div className="truncate text-sm font-semibold">Showei Command</div>
-          <div className="text-xs text-muted-foreground">Sales operations</div>
+          <div className="truncate text-sm font-semibold">翔栄 営業管理</div>
+          <div className="text-xs text-muted-foreground">営業自動化ワークスペース</div>
         </div>
       </div>
       <div className="flex-1 space-y-5 px-3 py-4">
         <div className="rounded-lg border border-border bg-muted/20 p-2">
           <div className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm">
             <Search className="size-4 text-muted-foreground" />
-            <span className="text-muted-foreground">Search or command</span>
-            <kbd className="ml-auto rounded border border-border bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground">⌘K</kbd>
+            <span className="text-muted-foreground">検索または操作</span>
+            <kbd className="ml-auto rounded border border-border bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground">
+              操作
+            </kbd>
           </div>
         </div>
         <nav className="space-y-1">
@@ -172,8 +264,8 @@ function Sidebar() {
         </nav>
         <Separator />
         <div>
-          <div className="mb-2 px-2 text-xs font-medium text-muted-foreground">Saved views</div>
-          {["フォームあり", "FAX候補あり", "再送フォロー", "Google Map未確認"].map((view) => (
+          <div className="mb-2 px-2 text-xs font-medium text-muted-foreground">保存ビュー</div>
+          {savedViews.map((view) => (
             <button
               key={view}
               className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -188,10 +280,10 @@ function Sidebar() {
         <div className="rounded-lg border border-border bg-card p-3">
           <div className="flex items-center gap-2">
             <Sparkles className="size-4 text-primary" />
-            <span className="text-sm font-medium">AI文面生成</span>
+            <span className="text-sm font-medium">文面自動生成</span>
           </div>
           <p className="mt-2 text-xs leading-5 text-muted-foreground">
-            業種、所在地、送信履歴を見ながら、次の一手を自動提案します。
+            業種、所在地、送信履歴を見ながら、次の営業文を作成します。
           </p>
         </div>
       </div>
@@ -199,7 +291,15 @@ function Sidebar() {
   );
 }
 
-function Topbar() {
+function Topbar({
+  theme,
+  onToggleTheme,
+  onAddLead,
+}: {
+  theme: "dark" | "light";
+  onToggleTheme: () => void;
+  onAddLead: () => void;
+}) {
   return (
     <header className="flex h-14 items-center justify-between border-b border-border bg-background/82 px-4 backdrop-blur">
       <div className="flex items-center gap-2">
@@ -208,67 +308,76 @@ function Topbar() {
         </Button>
         <Badge variant="outline" className="hidden gap-1.5 sm:inline-flex">
           <Activity className="size-3" />
-          Live workspace
+          稼働中
         </Badge>
         <div className="hidden items-center gap-2 rounded-md border border-border bg-muted/20 px-2.5 py-1.5 text-sm text-muted-foreground md:flex">
           <Command className="size-4" />
-          <span>Type to focus a workflow</span>
+          <span>作業フローをすぐ開く</span>
         </div>
       </div>
       <div className="flex items-center gap-2">
-        <Button variant="ghost" size="icon" aria-label="Light mode preview">
-          <Sun />
+        <Button variant="ghost" size="icon" onClick={onToggleTheme} aria-label="表示モード切替">
+          {theme === "dark" ? <Moon /> : <Sun />}
         </Button>
-        <Button variant="ghost" size="icon" aria-label="Dark mode">
-          <Moon />
-        </Button>
-        <Button variant="outline" size="sm">
+        <Button variant="outline" size="sm" onClick={onAddLead}>
           <Plus />
-          New lead
+          候補を追加
         </Button>
       </div>
     </header>
   );
 }
 
-function Header() {
+function Header({ onRunActions, onFilter }: { onRunActions: () => void; onFilter: () => void }) {
   return (
     <section className="flex flex-col gap-4 rounded-lg border border-border bg-card/55 p-5 shadow-glow lg:flex-row lg:items-center lg:justify-between">
       <div className="min-w-0">
         <div className="mb-3 flex items-center gap-2">
           <Badge variant="default" className="gap-1.5">
             <Zap className="size-3" />
-            Outreach OS
+            営業管理OS
           </Badge>
-          <Badge variant="outline">May 28, 2026</Badge>
+          <Badge variant="outline">2026年5月28日</Badge>
         </div>
         <h1 className="text-2xl font-semibold tracking-normal text-foreground md:text-3xl">
           営業スタッフなしで回る、物流営業ダッシュボード
         </h1>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
-          Google Map掲載サイト、フォーム、FAX、メール、送信履歴を一つの作業列に統合。事務員さんが空き時間に迷わず送信まで進められる管理画面です。
+          地図掲載サイト、問い合わせフォーム、ファックス、メール、送信履歴を一つの作業列に統合します。
+          事務員さんが空き時間に迷わず送信まで進められる管理画面です。
         </p>
       </div>
       <div className="flex shrink-0 items-center gap-2">
-        <Button variant="outline">
+        <Button variant="outline" onClick={onFilter}>
           <Filter />
-          Filters
+          送信準備だけ表示
         </Button>
-        <Button>
+        <Button onClick={onRunActions}>
           <Sparkles />
-          Run next actions
+          次の作業を実行
         </Button>
       </div>
     </section>
   );
 }
 
-function KpiGrid() {
+function Notice({ text }: { text: string }) {
+  return (
+    <div className="rounded-lg border border-primary/20 bg-primary/10 px-4 py-3 text-sm text-primary">
+      {text}
+    </div>
+  );
+}
+
+function KpiGrid({ leads }: { leads: Lead[] }) {
+  const ready = leads.filter((lead) => lead.status === "送信準備" || lead.status === "ファックス候補あり").length;
+  const sent = leads.filter((lead) => lead.status === "送信済み").length;
+  const formCount = leads.filter((lead) => lead.formUrl).length;
   const kpis = [
-    { label: "候補企業", value: "128", detail: "+18 this week", icon: Building2 },
-    { label: "送信準備OK", value: "34", detail: "フォーム/FAXあり", icon: CheckCircle2 },
-    { label: "本日の送信", value: "12", detail: "平均2.4分/件", icon: Send },
-    { label: "返信・商談化", value: "7", detail: "18.9% response", icon: MessageSquareText },
+    { label: "候補企業", value: String(leads.length), detail: "現在の管理件数", icon: Building2 },
+    { label: "送信準備済み", value: String(ready), detail: "フォームまたはファックスあり", icon: CheckCircle2 },
+    { label: "フォームあり", value: String(formCount), detail: "すぐ開けます", icon: Send },
+    { label: "送信済み", value: String(sent), detail: "履歴に記録済み", icon: MessageSquareText },
   ];
 
   return (
@@ -289,31 +398,58 @@ function KpiGrid() {
   );
 }
 
-function LeadTable() {
+function LeadTable({
+  leads,
+  selectedId,
+  filter,
+  onFilterChange,
+  onSelect,
+}: {
+  leads: Lead[];
+  selectedId: number;
+  filter: LeadStatus | "すべて";
+  onFilterChange: (filter: LeadStatus | "すべて") => void;
+  onSelect: (id: number) => void;
+}) {
   return (
     <Card className="panel-surface hairline overflow-hidden">
       <CardHeader className="flex-row items-center justify-between border-b border-border pb-3">
         <div>
           <CardTitle>営業候補パイプライン</CardTitle>
-          <CardDescription>優先度順。フォーム、FAX、Google Map掲載サイトを同じ行で確認できます。</CardDescription>
+          <CardDescription>優先度順。フォーム、ファックス、地図掲載サイトを同じ行で確認できます。</CardDescription>
         </div>
-        <Button variant="ghost" size="icon">
-          <MoreHorizontal />
-        </Button>
+        <div className="flex items-center gap-2">
+          <select
+            value={filter}
+            onChange={(event) => onFilterChange(event.target.value as LeadStatus | "すべて")}
+            className="h-8 rounded-md border border-border bg-background px-2 text-xs text-foreground"
+          >
+            {["すべて", "未確認", "送信準備", "フォームなし", "ファックス候補あり", "送信済み", "再送候補"].map((item) => (
+              <option key={item}>{item}</option>
+            ))}
+          </select>
+          <Button variant="ghost" size="icon">
+            <MoreHorizontal />
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="p-0">
         <div className="grid grid-cols-[72px_1.45fr_1fr_1fr_112px_116px] border-b border-border px-4 py-2 text-xs text-muted-foreground">
-          <span>Score</span>
-          <span>Company</span>
-          <span>Source</span>
-          <span>Offer</span>
-          <span>Status</span>
-          <span>Next</span>
+          <span>点数</span>
+          <span>会社名</span>
+          <span>取得元</span>
+          <span>提案内容</span>
+          <span>状態</span>
+          <span>次の作業</span>
         </div>
         {leads.map((lead) => (
-          <div
-            key={lead.company}
-            className="grid grid-cols-[72px_1.45fr_1fr_1fr_112px_116px] items-center border-b border-border/70 px-4 py-3 text-sm transition-colors last:border-b-0 hover:bg-white/[.035]"
+          <button
+            key={lead.id}
+            onClick={() => onSelect(lead.id)}
+            className={cn(
+              "grid w-full grid-cols-[72px_1.45fr_1fr_1fr_112px_116px] items-center border-b border-border/70 px-4 py-3 text-left text-sm transition-colors last:border-b-0 hover:bg-white/[.035]",
+              selectedId === lead.id && "bg-primary/8",
+            )}
           >
             <div className="font-medium text-primary">{lead.score}</div>
             <div className="min-w-0">
@@ -325,37 +461,49 @@ function LeadTable() {
             </div>
             <div className="flex items-center gap-2 text-muted-foreground">
               <ExternalLink className="size-4" />
-              <span className="truncate">{lead.channel}</span>
+              <span className="truncate">{lead.source}</span>
             </div>
             <div className="truncate text-muted-foreground">{lead.offer}</div>
             <Badge variant={lead.status === "送信準備" ? "success" : lead.status === "フォームなし" ? "warning" : "outline"}>
               {lead.status}
             </Badge>
-            <Button variant="ghost" size="sm" className="justify-start px-2">
+            <span className="flex items-center gap-1 text-muted-foreground">
               {lead.next}
-              <ArrowUpRight className="ml-auto" />
-            </Button>
-          </div>
+              <ArrowUpRight className="size-3.5" />
+            </span>
+          </button>
         ))}
       </CardContent>
     </Card>
   );
 }
 
-function CommandPanel() {
+function CommandPanel({
+  lead,
+  onMapLookup,
+  onCreateProposal,
+  onMarkSent,
+}: {
+  lead: Lead;
+  onMapLookup: () => void;
+  onCreateProposal: () => void;
+  onMarkSent: () => void;
+}) {
+  const steps = [
+    { title: "地図掲載サイトアドレスを取得", desc: "地図情報だけの候補から掲載サイトを補完", icon: MapPin, done: lead.source.includes("地図") },
+    { title: "フォーム・ファックスを確認", desc: "問い合わせ先を保存", icon: Phone, done: Boolean(lead.formUrl || lead.fax || lead.email) },
+    { title: "営業文面を作成", desc: "フォーム用またはファックス用を選んで生成", icon: Bot, done: lead.status === "送信準備" || lead.status === "送信済み" },
+    { title: "送信済みに記録", desc: "送信方法、切り口、メモを履歴化", icon: Clock3, done: lead.status === "送信済み" },
+  ];
+
   return (
     <Card className="panel-surface hairline">
       <CardHeader className="border-b border-border pb-3">
         <CardTitle>次にやること</CardTitle>
-        <CardDescription>空き時間に上から処理できる、迷わない営業フロー。</CardDescription>
+        <CardDescription>{lead.company} の作業を上から進めます。</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 p-4">
-        {[
-          { title: "Google Map掲載サイトURLを取得", desc: "CIDのみの候補から公式/掲載サイトを補完", icon: MapPin, done: true },
-          { title: "フォーム・FAXを確認", desc: "問い合わせフォーム、FAX、電話候補を保存", icon: Phone, done: true },
-          { title: "AI文面を作成", desc: "フォーム用またはFAX用を選んで生成", icon: Bot, done: false },
-          { title: "送信済みに記録", desc: "送信方法、切り口、メモを履歴化", icon: Clock3, done: false },
-        ].map((item, index) => (
+        {steps.map((item, index) => (
           <div key={item.title} className="flex gap-3 rounded-lg border border-border bg-background/35 p-3">
             <div className={cn("flex size-8 shrink-0 items-center justify-center rounded-md", item.done ? "bg-emerald-500/12 text-emerald-300" : "bg-primary/12 text-primary")}>
               <item.icon className="size-4" />
@@ -369,12 +517,24 @@ function CommandPanel() {
             </div>
           </div>
         ))}
+        <div className="grid gap-2 sm:grid-cols-3">
+          <Button variant="outline" onClick={onMapLookup}>地図情報取得</Button>
+          <Button variant="outline" onClick={onCreateProposal}>文面作成</Button>
+          <Button onClick={onMarkSent}>送信済みにする</Button>
+        </div>
       </CardContent>
     </Card>
   );
 }
 
-function WorkflowBoard() {
+function WorkflowBoard({ activity, leads }: { activity: string[]; leads: Lead[] }) {
+  const flow = [
+    { label: "地図情報取得", value: 82, icon: MapPin },
+    { label: "フォーム・ファックス確認", value: 64, icon: ClipboardCheck },
+    { label: "営業文面作成", value: 48, icon: Bot },
+    { label: "送信記録", value: Math.min(100, leads.filter((lead) => lead.status === "送信済み").length * 25), icon: Database },
+  ];
+
   return (
     <Card className="panel-surface hairline">
       <CardHeader className="border-b border-border pb-3">
@@ -398,16 +558,16 @@ function WorkflowBoard() {
           <div className="mb-3 flex items-center justify-between">
             <div>
               <div className="text-sm font-medium">最近の処理</div>
-              <p className="mt-1 text-xs text-muted-foreground">チームが最後に触った営業アクション</p>
+              <p className="mt-1 text-xs text-muted-foreground">最後に操作した営業アクション</p>
             </div>
-            <Button variant="ghost" size="sm">View all</Button>
+            <Button variant="ghost" size="sm">すべて見る</Button>
           </div>
           <div className="space-y-2">
-            {recent.map((item) => (
-              <div key={item.title} className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-white/[.035]">
+            {activity.map((item, index) => (
+              <div key={`${item}-${index}`} className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-white/[.035]">
                 <CornerDownRight className="size-4 text-muted-foreground" />
-                <span className="min-w-0 flex-1 truncate text-sm">{item.title}</span>
-                <span className="text-xs text-muted-foreground">{item.time}</span>
+                <span className="min-w-0 flex-1 truncate text-sm">{item}</span>
+                <span className="text-xs text-muted-foreground">{index === 0 ? "いま" : `${index * 12}分前`}</span>
               </div>
             ))}
           </div>
@@ -417,12 +577,12 @@ function WorkflowBoard() {
   );
 }
 
-function EmptyState() {
+function EmptyState({ onAddLead, onResetFilter }: { onAddLead: () => void; onResetFilter: () => void }) {
   return (
     <Card className="panel-surface hairline flex min-h-[360px] flex-col">
       <CardHeader className="border-b border-border pb-3">
         <CardTitle>送信待ちがありません</CardTitle>
-        <CardDescription>条件に合う候補がない時も、画面が行き止まりにならない空状態。</CardDescription>
+        <CardDescription>条件に合う候補がない時も、次の作業へ進めます。</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col items-center justify-center p-8 text-center">
         <div className="flex size-12 items-center justify-center rounded-lg border border-border bg-muted/35">
@@ -430,16 +590,16 @@ function EmptyState() {
         </div>
         <h3 className="mt-5 text-base font-semibold">次の営業候補を準備しましょう</h3>
         <p className="mt-2 max-w-sm text-sm leading-6 text-muted-foreground">
-          Google Map検索から会社URLを補完し、フォームまたはFAX候補が見つかった会社だけを送信キューに追加します。
+          地図検索から会社サイトのアドレスを補完し、フォームまたはファックス候補が見つかった会社だけを送信待ちに追加します。
         </p>
         <div className="mt-5 flex items-center gap-2">
-          <Button>
+          <Button onClick={onAddLead}>
             <Search />
-            候補を検索
+            候補を追加
           </Button>
-          <Button variant="outline">
+          <Button variant="outline" onClick={onResetFilter}>
             <Settings2 />
-            条件を調整
+            絞り込み解除
           </Button>
         </div>
         <div className="mt-6 flex items-center gap-2 text-xs text-muted-foreground">
