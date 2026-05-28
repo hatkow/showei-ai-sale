@@ -59,6 +59,8 @@ type Lead = {
   fax?: string;
   email?: string;
 };
+type NavLabel = "受信箱" | "営業候補" | "地図検索" | "提案文" | "送信待ち" | "履歴";
+type SavedView = "フォームあり" | "ファックス候補あり" | "再送フォロー" | "地図情報未確認";
 
 const initialLeads: Lead[] = [
   {
@@ -109,14 +111,14 @@ const initialLeads: Lead[] = [
 
 const nav = [
   { label: "受信箱", icon: Inbox, count: "12" },
-  { label: "営業候補", icon: Layers3, active: true, count: "48" },
+  { label: "営業候補", icon: Layers3, count: "48" },
   { label: "地図検索", icon: Radar },
   { label: "提案文", icon: FileText },
   { label: "送信待ち", icon: Send, count: "7" },
   { label: "履歴", icon: Archive },
-];
+] satisfies Array<{ label: NavLabel; icon: typeof Inbox; count?: string }>;
 
-const savedViews = ["フォームあり", "ファックス候補あり", "再送フォロー", "地図情報未確認"];
+const savedViews: SavedView[] = ["フォームあり", "ファックス候補あり", "再送フォロー", "地図情報未確認"];
 
 export default function Page() {
   const [leads, setLeads] = useState(initialLeads);
@@ -129,12 +131,33 @@ export default function Page() {
   const [filter, setFilter] = useState<LeadStatus | "すべて">("すべて");
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [notice, setNotice] = useState("操作した内容がここに表示されます。");
+  const [activeMenu, setActiveMenu] = useState<NavLabel>("営業候補");
+  const [activeView, setActiveView] = useState<SavedView | "なし">("なし");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const selectedLead = leads.find((lead) => lead.id === selectedId) ?? leads[0];
-  const visibleLeads = useMemo(
-    () => (filter === "すべて" ? leads : leads.filter((lead) => lead.status === filter)),
-    [filter, leads],
-  );
+  const visibleLeads = useMemo(() => {
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+    return leads.filter((lead) => {
+      const matchesStatus = filter === "すべて" || lead.status === filter;
+      const matchesMenu =
+        activeMenu === "営業候補" ||
+        activeMenu === "受信箱" ||
+        (activeMenu === "地図検索" && lead.source.includes("地図")) ||
+        (activeMenu === "提案文" && (lead.status === "送信準備" || lead.status === "再送候補")) ||
+        (activeMenu === "送信待ち" && lead.status === "送信準備") ||
+        (activeMenu === "履歴" && lead.status === "送信済み");
+      const matchesView =
+        activeView === "なし" ||
+        (activeView === "フォームあり" && Boolean(lead.formUrl)) ||
+        (activeView === "ファックス候補あり" && lead.status === "ファックス候補あり") ||
+        (activeView === "再送フォロー" && lead.status === "再送候補") ||
+        (activeView === "地図情報未確認" && !lead.source.includes("地図"));
+      const searchableText = `${lead.company} ${lead.area} ${lead.source} ${lead.offer} ${lead.status}`.toLowerCase();
+      const matchesSearch = normalizedQuery.length === 0 || searchableText.includes(normalizedQuery);
+      return matchesStatus && matchesMenu && matchesView && matchesSearch;
+    });
+  }, [activeMenu, activeView, filter, leads, searchQuery]);
 
   function pushActivity(message: string) {
     setActivity((current) => [message, ...current].slice(0, 6));
@@ -181,10 +204,31 @@ export default function Page() {
     pushActivity(`${newLead.company} を追加しました`);
   }
 
+  function selectMenu(label: NavLabel) {
+    setActiveMenu(label);
+    setActiveView("なし");
+    setFilter(label === "送信待ち" ? "送信準備" : label === "履歴" ? "送信済み" : "すべて");
+    setNotice(`${label} を表示しました。`);
+  }
+
+  function selectSavedView(view: SavedView) {
+    setActiveView(view);
+    setActiveMenu("営業候補");
+    setFilter("すべて");
+    setNotice(`${view} の候補に絞り込みました。`);
+  }
+
   return (
     <main className={cn("min-h-screen bg-background text-foreground", theme)}>
       <div className="flex min-h-screen">
-        <Sidebar />
+        <Sidebar
+          activeMenu={activeMenu}
+          activeView={activeView}
+          searchQuery={searchQuery}
+          onMenuSelect={selectMenu}
+          onSavedViewSelect={selectSavedView}
+          onSearchChange={setSearchQuery}
+        />
         <section className="flex min-w-0 flex-1 flex-col">
           <Topbar
             theme={theme}
@@ -192,7 +236,15 @@ export default function Page() {
             onAddLead={addLead}
           />
           <div className="mx-auto flex w-full max-w-[1480px] flex-1 flex-col gap-5 px-5 py-5 lg:px-7">
-            <Header onRunActions={createProposal} onFilter={() => setFilter(filter === "すべて" ? "送信準備" : "すべて")} />
+            <Header
+              activeMenu={activeMenu}
+              searchQuery={searchQuery}
+              onRunActions={createProposal}
+              onFilter={() => {
+                setActiveView("なし");
+                setFilter(filter === "すべて" ? "送信準備" : "すべて");
+              }}
+            />
             <Notice text={notice} />
             <KpiGrid leads={leads} />
             <div className="grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(360px,.95fr)]">
@@ -202,6 +254,12 @@ export default function Page() {
                 filter={filter}
                 onFilterChange={setFilter}
                 onSelect={setSelectedId}
+                onReset={() => {
+                  setActiveMenu("営業候補");
+                  setActiveView("なし");
+                  setFilter("すべて");
+                  setSearchQuery("");
+                }}
               />
               <CommandPanel
                 lead={selectedLead}
@@ -212,7 +270,15 @@ export default function Page() {
             </div>
             <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
               <WorkflowBoard activity={activity} leads={leads} />
-              <EmptyState onAddLead={addLead} onResetFilter={() => setFilter("すべて")} />
+              <EmptyState
+                onAddLead={addLead}
+                onResetFilter={() => {
+                  setActiveMenu("営業候補");
+                  setActiveView("なし");
+                  setFilter("すべて");
+                  setSearchQuery("");
+                }}
+              />
             </div>
           </div>
         </section>
@@ -221,9 +287,23 @@ export default function Page() {
   );
 }
 
-function Sidebar() {
+function Sidebar({
+  activeMenu,
+  activeView,
+  searchQuery,
+  onMenuSelect,
+  onSavedViewSelect,
+  onSearchChange,
+}: {
+  activeMenu: NavLabel;
+  activeView: SavedView | "なし";
+  searchQuery: string;
+  onMenuSelect: (label: NavLabel) => void;
+  onSavedViewSelect: (view: SavedView) => void;
+  onSearchChange: (value: string) => void;
+}) {
   return (
-    <aside className="hidden w-[264px] shrink-0 border-r border-border bg-black/20 lg:flex lg:flex-col">
+    <aside className="flex w-[248px] shrink-0 flex-col border-r border-border bg-black/20 lg:w-[264px]">
       <div className="flex h-14 items-center gap-2 border-b border-border px-4">
         <div className="flex size-7 items-center justify-center rounded-md bg-primary/16 text-primary ring-1 ring-primary/25">
           <Truck className="size-4" />
@@ -235,21 +315,24 @@ function Sidebar() {
       </div>
       <div className="flex-1 space-y-5 px-3 py-4">
         <div className="rounded-lg border border-border bg-muted/20 p-2">
-          <div className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm">
+          <label className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm">
             <Search className="size-4 text-muted-foreground" />
-            <span className="text-muted-foreground">検索または操作</span>
-            <kbd className="ml-auto rounded border border-border bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground">
-              操作
-            </kbd>
-          </div>
+            <input
+              value={searchQuery}
+              onChange={(event) => onSearchChange(event.target.value)}
+              placeholder="会社名・地域で検索"
+              className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
+            />
+          </label>
         </div>
         <nav className="space-y-1">
           {nav.map((item) => (
             <button
               key={item.label}
+              onClick={() => onMenuSelect(item.label)}
               className={cn(
                 "flex h-9 w-full items-center gap-2 rounded-md px-2.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
-                item.active && "bg-accent text-foreground",
+                activeMenu === item.label && "bg-accent text-foreground",
               )}
             >
               <item.icon className="size-4" />
@@ -268,7 +351,11 @@ function Sidebar() {
           {savedViews.map((view) => (
             <button
               key={view}
-              className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+              onClick={() => onSavedViewSelect(view)}
+              className={cn(
+                "flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground",
+                activeView === view && "bg-accent text-foreground",
+              )}
             >
               <Circle className="size-2.5 fill-current" />
               {view}
@@ -328,7 +415,17 @@ function Topbar({
   );
 }
 
-function Header({ onRunActions, onFilter }: { onRunActions: () => void; onFilter: () => void }) {
+function Header({
+  activeMenu,
+  searchQuery,
+  onRunActions,
+  onFilter,
+}: {
+  activeMenu: NavLabel;
+  searchQuery: string;
+  onRunActions: () => void;
+  onFilter: () => void;
+}) {
   return (
     <section className="flex flex-col gap-4 rounded-lg border border-border bg-card/55 p-5 shadow-glow lg:flex-row lg:items-center lg:justify-between">
       <div className="min-w-0">
@@ -340,11 +437,12 @@ function Header({ onRunActions, onFilter }: { onRunActions: () => void; onFilter
           <Badge variant="outline">2026年5月28日</Badge>
         </div>
         <h1 className="text-2xl font-semibold tracking-normal text-foreground md:text-3xl">
-          営業スタッフなしで回る、物流営業ダッシュボード
+          {activeMenu === "営業候補" ? "営業スタッフなしで回る、物流営業ダッシュボード" : `${activeMenu}を確認`}
         </h1>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
-          地図掲載サイト、問い合わせフォーム、ファックス、メール、送信履歴を一つの作業列に統合します。
-          事務員さんが空き時間に迷わず送信まで進められる管理画面です。
+          {searchQuery
+            ? `「${searchQuery}」に一致する候補を表示しています。`
+            : "地図掲載サイト、問い合わせフォーム、ファックス、メール、送信履歴を一つの作業列に統合します。事務員さんが空き時間に迷わず送信まで進められる管理画面です。"}
         </p>
       </div>
       <div className="flex shrink-0 items-center gap-2">
@@ -404,12 +502,14 @@ function LeadTable({
   filter,
   onFilterChange,
   onSelect,
+  onReset,
 }: {
   leads: Lead[];
   selectedId: number;
   filter: LeadStatus | "すべて";
   onFilterChange: (filter: LeadStatus | "すべて") => void;
   onSelect: (id: number) => void;
+  onReset: () => void;
 }) {
   return (
     <Card className="panel-surface hairline overflow-hidden">
@@ -442,7 +542,20 @@ function LeadTable({
           <span>状態</span>
           <span>次の作業</span>
         </div>
-        {leads.map((lead) => (
+        {leads.length === 0 ? (
+          <div className="flex min-h-[260px] flex-col items-center justify-center px-4 py-12 text-center">
+            <div className="flex size-12 items-center justify-center rounded-lg border border-border bg-muted/35">
+              <Search className="size-5 text-primary" />
+            </div>
+            <h3 className="mt-5 text-base font-semibold">条件に合う候補がありません</h3>
+            <p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">
+              左の検索欄や保存ビューを変えると、候補企業を絞り込めます。
+            </p>
+            <Button variant="outline" className="mt-5" onClick={onReset}>
+              絞り込みを解除
+            </Button>
+          </div>
+        ) : leads.map((lead) => (
           <button
             key={lead.id}
             onClick={() => onSelect(lead.id)}
