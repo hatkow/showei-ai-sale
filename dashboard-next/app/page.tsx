@@ -175,6 +175,8 @@ export default function Page() {
   const [activeView, setActiveView] = useState<SavedView | "なし">("なし");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedIndustry, setSelectedIndustry] = useState<IndustryGenre | "すべて">("すべて");
+  const [draftSearchQuery, setDraftSearchQuery] = useState("");
+  const [draftIndustry, setDraftIndustry] = useState<IndustryGenre | "すべて">("すべて");
 
   const selectedLead = leads.find((lead) => lead.id === selectedId) ?? leads[0];
   const visibleLeads = useMemo(() => {
@@ -261,12 +263,17 @@ export default function Page() {
     setNotice(`${view} の候補に絞り込みました。`);
   }
 
-  function selectIndustry(industry: IndustryGenre | "すべて") {
-    setSelectedIndustry(industry);
+  function submitSearch() {
+    setSelectedIndustry(draftIndustry);
+    setSearchQuery(draftSearchQuery);
     setActiveMenu("営業候補");
     setActiveView("なし");
     setFilter("すべて");
-    setNotice(industry === "すべて" ? "すべての業界ジャンルを表示しました。" : `${industry} の候補に絞り込みました。`);
+    const conditions = [
+      draftIndustry !== "すべて" ? draftIndustry : null,
+      draftSearchQuery.trim() ? `キーワード「${draftSearchQuery.trim()}」` : null,
+    ].filter(Boolean);
+    setNotice(conditions.length ? `${conditions.join("、")} で検索しました。` : "すべての候補を表示しました。");
   }
 
   return (
@@ -275,12 +282,13 @@ export default function Page() {
         <Sidebar
           activeMenu={activeMenu}
           activeView={activeView}
-          searchQuery={searchQuery}
-          selectedIndustry={selectedIndustry}
+          searchQuery={draftSearchQuery}
+          selectedIndustry={draftIndustry}
           onMenuSelect={selectMenu}
           onSavedViewSelect={selectSavedView}
-          onSearchChange={setSearchQuery}
-          onIndustryChange={selectIndustry}
+          onSearchChange={setDraftSearchQuery}
+          onIndustryChange={setDraftIndustry}
+          onSearchSubmit={submitSearch}
         />
         <section className="flex min-w-0 flex-1 flex-col">
           <Topbar
@@ -314,6 +322,8 @@ export default function Page() {
                   setFilter("すべて");
                   setSearchQuery("");
                   setSelectedIndustry("すべて");
+                  setDraftSearchQuery("");
+                  setDraftIndustry("すべて");
                 }}
               />
               <CommandPanel
@@ -333,6 +343,8 @@ export default function Page() {
                   setFilter("すべて");
                   setSearchQuery("");
                   setSelectedIndustry("すべて");
+                  setDraftSearchQuery("");
+                  setDraftIndustry("すべて");
                 }}
               />
             </div>
@@ -352,6 +364,7 @@ function Sidebar({
   onSavedViewSelect,
   onSearchChange,
   onIndustryChange,
+  onSearchSubmit,
 }: {
   activeMenu: NavLabel;
   activeView: SavedView | "なし";
@@ -361,6 +374,7 @@ function Sidebar({
   onSavedViewSelect: (view: SavedView) => void;
   onSearchChange: (value: string) => void;
   onIndustryChange: (value: IndustryGenre | "すべて") => void;
+  onSearchSubmit: () => void;
 }) {
   return (
     <aside className="flex w-[248px] shrink-0 flex-col border-r border-border bg-black/20 lg:w-[264px]">
@@ -396,6 +410,10 @@ function Sidebar({
               className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
             />
           </label>
+          <Button className="w-full" onClick={onSearchSubmit}>
+            <Search />
+            この条件で検索
+          </Button>
         </div>
         <nav className="space-y-1">
           {nav.map((item) => (
