@@ -23,6 +23,7 @@ type CollectedLead = {
   latitude: unknown;
   longitude: unknown;
   summary: string;
+  searchTerms: string[];
   contactUrl?: string;
   email?: string;
   fax?: string;
@@ -106,31 +107,43 @@ export async function POST(request: Request) {
   }
 
   const queries = buildQueries(industry, area, keyword);
-  const collected = new Map<string, Record<string, unknown>>();
+  const collected = new Map<string, CollectedLead>();
 
   for (const query of queries) {
-    if (collected.size >= limit) break;
-    const places = await searchPlaces(apiKey, query, Math.min(limit, 20));
+    const places = await searchPlaces(apiKey, query, 20);
     for (const place of places) {
-      if (collected.size >= limit) break;
-      const lead = normalizePlace(place, industry, area);
+      const lead = normalizePlace(place, industry, area, query);
       if (!lead || isExcluded(lead.name, lead.summary || "", lead.url || "")) continue;
       const key = `${lead.name}-${lead.address || lead.url || ""}`;
-      if (collected.has(key)) continue;
-      if (lead.url && /^https?:\/\//.test(lead.url) && !lead.url.includes("google.com/maps")) {
-        const contact = await inspectContact(lead.url);
-        lead.contactUrl = contact.contactUrl;
-        lead.email = contact.email;
-        lead.fax = contact.fax;
+      const existing = collected.get(key);
+      if (existing) {
+        existing.searchTerms = Array.from(new Set([...existing.searchTerms, query]));
+        existing.score = Math.min(100, existing.score + 2);
+        continue;
       }
       collected.set(key, lead);
     }
   }
 
+  const leads = Array.from(collected.values())
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+
+  for (const lead of leads) {
+    if (lead.url && /^https?:\/\//.test(lead.url) && !lead.url.includes("google.com/maps")) {
+      const contact = await inspectContact(lead.url);
+      lead.contactUrl = contact.contactUrl;
+      lead.email = contact.email;
+      lead.fax = contact.fax;
+    }
+  }
+
   return NextResponse.json({
     ok: true,
-    message: `${collected.size}件の企業候補を収集しました。`,
-    leads: Array.from(collected.values()),
+    message: `${queries.length}個の検索キーワードをすべて調査し、${leads.length}件の企業候補を収集しました。`,
+    searchedKeywords: queries,
+    totalCandidates: collected.size,
+    leads,
   });
 }
 
@@ -148,7 +161,7 @@ function getSetting(name: string) {
 function buildQueries(industry: string, area: string, keyword: string) {
   const terms = industryTerms[industry] || [industry];
   const selectedTerms = keyword ? [keyword, ...terms] : terms;
-  return Array.from(new Set(selectedTerms.map((term) => `${area} ${term} 会社 工場 -求人 -採用 -転職 -アルバイト`))).slice(0, 5);
+  return Array.from(new Set(selectedTerms.map((term) => `${area} ${term} 会社 工場 -求人 -採用 -転職 -アルバイト`)));
 }
 
 async function searchPlaces(apiKey: string, query: string, limit: number) {
@@ -162,7 +175,7 @@ async function searchPlaces(apiKey: string, query: string, limit: number) {
   return Array.isArray(data.places) ? data.places : [];
 }
 
-function normalizePlace(place: Record<string, unknown>, industry: string, area: string): CollectedLead | null {
+function normalizePlace(place: Record<string, unknown>, industry: string, area: string, query: string): CollectedLead | null {
   const name = String(place.title || "").trim();
   if (!name) return null;
   const website = typeof place.website === "string" ? place.website : "";
@@ -186,6 +199,7 @@ function normalizePlace(place: Record<string, unknown>, industry: string, area: 
     latitude: place.latitude,
     longitude: place.longitude,
     summary: [category, address, phone].filter(Boolean).join(" / "),
+    searchTerms: [query],
   };
 }
 
@@ -278,6 +292,7 @@ function sampleLeads(industry: string, area: string, limit: number) {
       next: "APIキー設定",
       offer: offerForIndustry(industry),
       summary: "SERPER_API_KEY 設定後に実在企業を収集します。",
+      searchTerms: [`${area} ${industry}`],
     },
   ].slice(0, limit);
 }

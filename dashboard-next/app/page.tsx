@@ -63,6 +63,7 @@ type Lead = {
   address?: string;
   phone?: string;
   summary?: string;
+  searchTerms?: string[];
 };
 type ProposalDraft = {
   leadId: number;
@@ -380,6 +381,7 @@ export default function Page() {
         address: typeof lead.address === "string" ? lead.address : undefined,
         phone: typeof lead.phone === "string" ? lead.phone : undefined,
         summary: typeof lead.summary === "string" ? lead.summary : undefined,
+        searchTerms: Array.isArray(lead.searchTerms) ? lead.searchTerms.map(String) : undefined,
       }));
       setLeads((current) => mergeLeads(collected, current));
       if (collected[0]) setSelectedId(collected[0].id);
@@ -875,6 +877,16 @@ function CommandPanel({
         <CardDescription>{lead.company} の作業を上から進めます。</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 p-4">
+        {lead.searchTerms?.length ? (
+          <div className="rounded-lg border border-border bg-background/35 p-3">
+            <div className="text-xs font-medium text-muted-foreground">見つかった検索キーワード</div>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {lead.searchTerms.slice(0, 6).map((term) => (
+                <Badge key={term} variant="outline">{term}</Badge>
+              ))}
+            </div>
+          </div>
+        ) : null}
         {steps.map((item, index) => (
           <div key={item.title} className="flex gap-3 rounded-lg border border-border bg-background/35 p-3">
             <div className={cn("flex size-8 shrink-0 items-center justify-center rounded-md", item.done ? "bg-emerald-500/12 text-emerald-300" : "bg-primary/12 text-primary")}>
