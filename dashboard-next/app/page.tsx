@@ -12,6 +12,7 @@ import {
   ClipboardCheck,
   Clock3,
   Command,
+  Copy,
   CornerDownRight,
   Database,
   ExternalLink,
@@ -73,6 +74,12 @@ type ProposalDraft = {
   subject: string;
   message: string;
 };
+type CopyField = {
+  key: string;
+  label: string;
+  value: string;
+  hint?: string;
+};
 type NavLabel = "受信箱" | "営業候補" | "地図検索" | "提案文" | "送信待ち" | "履歴";
 type SavedView = "フォームあり" | "ファックス候補あり" | "再送フォロー" | "地図情報未確認";
 type IndustryGenre =
@@ -123,6 +130,15 @@ const nav = [
 ] satisfies Array<{ label: NavLabel; icon: typeof Inbox }>;
 
 const savedViews: SavedView[] = ["フォームあり", "ファックス候補あり", "再送フォロー", "地図情報未確認"];
+
+const salesProfile = {
+  company: "有限会社翔栄サービス",
+  department: "営業担当",
+  contact: "原田 裕士",
+  phone: "0270-64-2429",
+  email: "showeiservice.office@gmail.com",
+  address: "〒370-1104 群馬県佐波郡玉村町上福島752",
+};
 
 function normalizeIndustry(value: string): IndustryGenre {
   return industryGenres.includes(value as IndustryGenre) && value !== "すべて" ? (value as IndustryGenre) : "自動車部品";
@@ -214,6 +230,21 @@ function getMapEmbedUrl(lead: Lead) {
 function openExternalUrl(url?: string) {
   if (!isExternalUrl(url)) return;
   window.open(url, "_blank", "noopener,noreferrer");
+}
+
+async function copyText(value: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  document.body.removeChild(textarea);
 }
 
 function shortUrl(url?: string) {
@@ -1108,6 +1139,7 @@ function CommandPanel({
             </div>
           )}
         </div>
+        <FormCopyTemplate lead={lead} draft={draft} />
         {draft ? (
           <div className="rounded-lg border border-primary/25 bg-primary/8 p-3">
             <div className="mb-3 flex items-center justify-between gap-2">
@@ -1161,6 +1193,66 @@ function CommandPanel({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function FormCopyTemplate({ lead, draft }: { lead: Lead; draft: ProposalDraft | null }) {
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const proposal = draft ?? buildProposalDraft(lead);
+  const fields: CopyField[] = [
+    { key: "company", label: "会社名", value: salesProfile.company, hint: "会社名、貴社名、法人名" },
+    { key: "department", label: "部署名", value: salesProfile.department, hint: "部署、所属" },
+    { key: "contact", label: "担当者名", value: salesProfile.contact, hint: "氏名、お名前" },
+    { key: "phone", label: "電話番号", value: salesProfile.phone, hint: "TEL、電話" },
+    { key: "email", label: "メールアドレス", value: salesProfile.email, hint: "E-mail、返信先" },
+    { key: "address", label: "住所", value: salesProfile.address, hint: "所在地、住所" },
+    { key: "subject", label: "件名", value: proposal.subject, hint: "題名、問い合わせ内容" },
+    { key: "message", label: "本文", value: proposal.message, hint: "お問い合わせ内容、備考" },
+  ];
+
+  async function handleCopy(key: string, value: string) {
+    await copyText(value);
+    setCopiedKey(key);
+    window.setTimeout(() => setCopiedKey(null), 1400);
+  }
+
+  const allText = fields.map((field) => `${field.label}: ${field.value}`).join("\n\n");
+
+  return (
+    <div className="rounded-lg border border-border bg-background/35 p-3">
+      <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="text-sm font-semibold">フォーム入力テンプレ</div>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            相手先フォームに合わせて、必要な項目だけコピーして貼り付けます。
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => handleCopy("all", allText)}>
+          <Copy />
+          {copiedKey === "all" ? "コピー済み" : "全部コピー"}
+        </Button>
+      </div>
+      <div className="grid gap-2">
+        {fields.map((field) => (
+          <div key={field.key} className="grid gap-2 rounded-md border border-border bg-card/45 p-2 sm:grid-cols-[120px_minmax(0,1fr)_96px] sm:items-center">
+            <div>
+              <div className="text-xs font-medium text-foreground">{field.label}</div>
+              {field.hint ? <div className="mt-1 text-[11px] leading-4 text-muted-foreground">{field.hint}</div> : null}
+            </div>
+            <div className="min-w-0 rounded border border-border bg-background px-2 py-1.5 text-xs leading-5 text-muted-foreground">
+              <span className={cn(field.key === "message" ? "line-clamp-4 whitespace-pre-wrap" : "truncate")}>{field.value}</span>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => handleCopy(field.key, field.value)}>
+              <Copy />
+              {copiedKey === field.key ? "済み" : "コピー"}
+            </Button>
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-50/85">
+        入力後は送信前に、相手先会社名と本文の宛名だけ確認してください。送信したら「送信済みにする」を押すと履歴に残せます。
+      </div>
+    </div>
   );
 }
 
