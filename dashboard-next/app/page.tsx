@@ -111,56 +111,7 @@ const industryGenres = [
   "農産物・花き",
 ] satisfies Array<IndustryGenre | "すべて">;
 
-const initialLeads: Lead[] = [
-  {
-    id: 1,
-    score: 96,
-    company: "清水建材工業",
-    industry: "建材・住宅設備",
-    area: "群馬県高崎市",
-    source: "地図掲載サイト",
-    status: "フォームなし",
-    next: "電話確認",
-    offer: "建材・残土配送の定期便化",
-    fax: "",
-  },
-  {
-    id: 2,
-    score: 92,
-    company: "AGF関東 食品工場",
-    industry: "食品製造・食品卸",
-    area: "群馬県太田市",
-    source: "問い合わせフォーム",
-    status: "送信準備",
-    next: "文面確認",
-    offer: "店舗納品・温度帯配送",
-    formUrl: "https://agf.ajinomoto.co.jp/inquiry/",
-  },
-  {
-    id: 3,
-    score: 88,
-    company: "栗原医療器械店 太田支店",
-    industry: "医療機器・医薬品",
-    area: "群馬県太田市",
-    source: "公式サイト",
-    status: "ファックス候補あり",
-    next: "ファックス送付",
-    offer: "医療機器の欠車リスク対策",
-    fax: "0276-37-8557",
-  },
-  {
-    id: 4,
-    score: 81,
-    company: "高崎精密部品センター",
-    industry: "電子部品・精密機器",
-    area: "群馬県高崎市",
-    source: "メール",
-    status: "再送候補",
-    next: "別切り口",
-    offer: "工場間輸送・スポット便",
-    email: "sales@example.jp",
-  },
-];
+const initialLeads: Lead[] = [];
 
 const nav = [
   { label: "受信箱", icon: Inbox },
@@ -260,6 +211,21 @@ function getMapEmbedUrl(lead: Lead) {
   return query ? `https://maps.google.com/maps?q=${encodeURIComponent(query)}&output=embed` : undefined;
 }
 
+function openExternalUrl(url?: string) {
+  if (!isExternalUrl(url)) return;
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
+function shortUrl(url?: string) {
+  if (!url) return "";
+  try {
+    const parsed = new URL(url);
+    return `${parsed.hostname}${parsed.pathname === "/" ? "" : parsed.pathname}`;
+  } catch {
+    return url;
+  }
+}
+
 function buildProposalDraft(lead: Lead): ProposalDraft {
   const channel = lead.fax ? "ファックス送信用" : lead.formUrl ? "問い合わせフォーム用" : "営業連絡用";
   const strength = lead.industry.includes("自動車")
@@ -293,12 +259,8 @@ TEL: 0270-64-2429`,
 
 export default function Page() {
   const [leads, setLeads] = useState(initialLeads);
-  const [selectedId, setSelectedId] = useState(initialLeads[1].id);
-  const [activity, setActivity] = useState([
-    "AGF関東 食品工場の問い合わせフォームを確認しました",
-    "清水建材工業の地図掲載サイトアドレスを取得しました",
-    "栗原医療器械店 太田支店のファックス候補を保存しました",
-  ]);
+  const [selectedId, setSelectedId] = useState<number | null>(initialLeads[0]?.id ?? null);
+  const [activity, setActivity] = useState<string[]>([]);
   const [filter, setFilter] = useState<LeadStatus | "すべて">("すべて");
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [notice, setNotice] = useState("操作した内容がここに表示されます。");
@@ -315,7 +277,7 @@ export default function Page() {
   const [collectionStep, setCollectionStep] = useState("");
   const [proposalDraft, setProposalDraft] = useState<ProposalDraft | null>(null);
 
-  const selectedLead = leads.find((lead) => lead.id === selectedId) ?? leads[0];
+  const selectedLead = leads.find((lead) => lead.id === selectedId) ?? leads[0] ?? null;
   const navCounts: Record<NavLabel, number> = {
     受信箱: activity.length,
     営業候補: leads.length,
@@ -354,10 +316,12 @@ export default function Page() {
   }
 
   function updateSelectedLead(next: Partial<Lead>) {
+    if (!selectedLead) return;
     setLeads((current) => current.map((lead) => (lead.id === selectedId ? { ...lead, ...next } : lead)));
   }
 
   function runMapLookup() {
+    if (!selectedLead) return;
     updateSelectedLead({
       source: "地図掲載サイト",
       status: selectedLead.status === "未確認" ? "送信準備" : selectedLead.status,
@@ -366,12 +330,14 @@ export default function Page() {
   }
 
   function createProposal() {
+    if (!selectedLead) return;
     updateSelectedLead({ status: "送信準備", next: "送信" });
     setProposalDraft(buildProposalDraft(selectedLead));
     pushActivity(`${selectedLead.company} の営業文を作成しました`);
   }
 
   function markSent() {
+    if (!selectedLead) return;
     updateSelectedLead({ status: "送信済み", next: "再送管理" });
     pushActivity(`${selectedLead.company} を送信済みに記録しました`);
   }
@@ -560,14 +526,25 @@ export default function Page() {
                   setDraftLimit(10);
                 }}
               />
-              <CommandPanel
-                lead={selectedLead}
-                draft={proposalDraft?.leadId === selectedLead.id ? proposalDraft : null}
-                onMapLookup={runMapLookup}
-                onCreateProposal={createProposal}
-                onDraftChange={setProposalDraft}
-                onMarkSent={markSent}
-              />
+              {selectedLead ? (
+                <CommandPanel
+                  lead={selectedLead}
+                  draft={proposalDraft?.leadId === selectedLead.id ? proposalDraft : null}
+                  onMapLookup={runMapLookup}
+                  onCreateProposal={createProposal}
+                  onDraftChange={setProposalDraft}
+                  onMarkSent={markSent}
+                />
+              ) : (
+                <EmptyState
+                  onAddLead={addLead}
+                  onResetFilter={() => {
+                    setActiveMenu("営業候補");
+                    setActiveView("なし");
+                    setFilter("すべて");
+                  }}
+                />
+              )}
             </div>
             <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
               <WorkflowBoard activity={activity} leads={leads} />
@@ -804,7 +781,7 @@ function Header({
             <Zap className="size-3" />
             営業管理OS
           </Badge>
-          <Badge variant="outline">2026年5月28日</Badge>
+          <Badge variant="outline">実データ連動</Badge>
         </div>
         <h1 className="text-2xl font-semibold tracking-normal text-foreground md:text-3xl">
           {activeMenu === "営業候補" ? "営業スタッフなしで回る、物流営業ダッシュボード" : `${activeMenu}を確認`}
@@ -909,7 +886,7 @@ function LeadTable({
   onReset,
 }: {
   leads: Lead[];
-  selectedId: number;
+  selectedId: number | null;
   filter: LeadStatus | "すべて";
   onFilterChange: (filter: LeadStatus | "すべて") => void;
   onSelect: (id: number) => void;
@@ -1021,6 +998,13 @@ function CommandPanel({
   const companySiteUrl = getCompanySiteUrl(lead);
   const mapUrl = getMapUrl(lead);
   const mapEmbedUrl = getMapEmbedUrl(lead);
+  const recommendedAction = isRealContactUrl(lead.formUrl)
+    ? "フォームを開いて、作成した営業文を貼り付けます。送信後は必ず「送信済みにする」を押してください。"
+    : lead.email
+      ? "メール宛先があります。文面を作成して、メール下書きへ貼り付けます。"
+      : lead.fax
+        ? "FAX番号があります。FAX用の文面を作成して送付します。"
+        : "まず企業サイトかGoogle Mapを開いて、問い合わせ先を確認します。";
 
   return (
     <Card className="panel-surface hairline">
@@ -1054,9 +1038,13 @@ function CommandPanel({
           </div>
         ))}
         <div className="grid gap-2 sm:grid-cols-3">
-          <Button variant="outline" onClick={onMapLookup}>地図情報取得</Button>
+          <Button variant="outline" onClick={onMapLookup}>確認済みにする</Button>
           <Button variant="outline" onClick={onCreateProposal}>文面作成</Button>
           <Button onClick={onMarkSent}>送信済みにする</Button>
+        </div>
+        <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/10 p-3">
+          <div className="text-sm font-semibold text-emerald-200">次にやる作業</div>
+          <p className="mt-1 text-sm leading-6 text-emerald-50/85">{recommendedAction}</p>
         </div>
         <div className="rounded-lg border border-border bg-background/35 p-3">
           <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -1068,35 +1056,40 @@ function CommandPanel({
             </div>
             <div className="flex flex-wrap gap-2">
               {mapUrl ? (
-                <Button asChild variant="outline" size="sm">
-                  <a href={mapUrl} target="_blank" rel="noreferrer">
-                    Google Mapを開く
-                    <ExternalLink />
-                  </a>
+                <Button variant="outline" size="sm" onClick={() => openExternalUrl(mapUrl)}>
+                  Google Mapを開く
+                  <ExternalLink />
                 </Button>
               ) : (
                 <Button variant="outline" size="sm" disabled>地図未取得</Button>
               )}
               {companySiteUrl ? (
-                <Button asChild variant="outline" size="sm">
-                  <a href={companySiteUrl} target="_blank" rel="noreferrer">
-                    企業サイトを開く
-                    <ExternalLink />
-                  </a>
+                <Button variant="outline" size="sm" onClick={() => openExternalUrl(companySiteUrl)}>
+                  企業サイトを開く
+                  <ExternalLink />
                 </Button>
               ) : (
                 <Button variant="outline" size="sm" disabled>企業サイト未取得</Button>
               )}
               {isRealContactUrl(lead.formUrl) ? (
-                <Button asChild size="sm">
-                  <a href={lead.formUrl} target="_blank" rel="noreferrer">
-                    フォームを開く
-                    <ExternalLink />
-                  </a>
+                <Button size="sm" onClick={() => openExternalUrl(lead.formUrl)}>
+                  フォームを開く
+                  <ExternalLink />
                 </Button>
               ) : (
                 <Button variant="outline" size="sm" disabled>フォーム未取得</Button>
               )}
+            </div>
+          </div>
+          <div className="mb-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-3">
+            <div className="rounded-md border border-border bg-background/40 px-2 py-1.5">
+              地図: {mapUrl ? shortUrl(mapUrl) : "未取得"}
+            </div>
+            <div className="rounded-md border border-border bg-background/40 px-2 py-1.5">
+              企業サイト: {companySiteUrl ? shortUrl(companySiteUrl) : "未取得"}
+            </div>
+            <div className="rounded-md border border-border bg-background/40 px-2 py-1.5">
+              フォーム: {isRealContactUrl(lead.formUrl) ? shortUrl(lead.formUrl) : "未取得"}
             </div>
           </div>
           {mapEmbedUrl ? (
@@ -1143,11 +1136,9 @@ function CommandPanel({
             </label>
             <div className="mt-3 grid gap-2 sm:grid-cols-2">
               {isRealContactUrl(lead.formUrl) ? (
-                <Button asChild>
-                  <a href={lead.formUrl} target="_blank" rel="noreferrer">
-                    フォームを開く
-                    <ExternalLink />
-                  </a>
+                <Button onClick={() => openExternalUrl(lead.formUrl)}>
+                  フォームを開く
+                  <ExternalLink />
                 </Button>
               ) : (
                 <Button variant="outline" disabled>フォーム未取得</Button>
@@ -1174,11 +1165,16 @@ function CommandPanel({
 }
 
 function WorkflowBoard({ activity, leads }: { activity: string[]; leads: Lead[] }) {
+  const total = Math.max(leads.length, 1);
+  const mapChecked = leads.filter((lead) => Boolean(getMapUrl(lead)) || lead.source.includes("地図")).length;
+  const contactChecked = leads.filter((lead) => Boolean(isRealContactUrl(lead.formUrl) || lead.email || lead.fax)).length;
+  const proposalReady = leads.filter((lead) => lead.status === "送信準備" || lead.status === "送信済み").length;
+  const sent = leads.filter((lead) => lead.status === "送信済み").length;
   const flow = [
-    { label: "地図情報取得", value: 82, icon: MapPin },
-    { label: "フォーム・ファックス確認", value: 64, icon: ClipboardCheck },
-    { label: "営業文面作成", value: 48, icon: Bot },
-    { label: "送信記録", value: Math.min(100, leads.filter((lead) => lead.status === "送信済み").length * 25), icon: Database },
+    { label: "地図情報取得", value: Math.round((mapChecked / total) * 100), icon: MapPin },
+    { label: "フォーム・ファックス確認", value: Math.round((contactChecked / total) * 100), icon: ClipboardCheck },
+    { label: "営業文面作成", value: Math.round((proposalReady / total) * 100), icon: Bot },
+    { label: "送信記録", value: Math.round((sent / total) * 100), icon: Database },
   ];
 
   return (
@@ -1209,13 +1205,19 @@ function WorkflowBoard({ activity, leads }: { activity: string[]; leads: Lead[] 
             <Button variant="ghost" size="sm">すべて見る</Button>
           </div>
           <div className="space-y-2">
-            {activity.map((item, index) => (
-              <div key={`${item}-${index}`} className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-white/[.035]">
-                <CornerDownRight className="size-4 text-muted-foreground" />
-                <span className="min-w-0 flex-1 truncate text-sm">{item}</span>
-                <span className="text-xs text-muted-foreground">{index === 0 ? "いま" : `${index * 12}分前`}</span>
+            {activity.length === 0 ? (
+              <div className="rounded-md border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
+                まだ操作履歴はありません。左の検索から候補を集めると、ここに作業内容が残ります。
               </div>
-            ))}
+            ) : (
+              activity.map((item, index) => (
+                <div key={`${item}-${index}`} className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-white/[.035]">
+                  <CornerDownRight className="size-4 text-muted-foreground" />
+                  <span className="min-w-0 flex-1 truncate text-sm">{item}</span>
+                  <span className="text-xs text-muted-foreground">{index === 0 ? "いま" : `${index * 12}分前`}</span>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </CardContent>
