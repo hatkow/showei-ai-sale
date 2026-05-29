@@ -139,6 +139,13 @@ export async function POST(request: Request) {
       lead.contactUrl = contact.contactUrl;
       lead.email = contact.email;
       lead.fax = contact.fax;
+      if (lead.contactUrl || lead.email) {
+        lead.status = "送信準備";
+        lead.next = "営業文作成";
+      } else if (lead.fax) {
+        lead.status = "ファックス候補あり";
+        lead.next = "FAX文作成";
+      }
     }
   }
 

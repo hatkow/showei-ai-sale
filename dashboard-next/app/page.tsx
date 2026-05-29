@@ -180,6 +180,23 @@ function normalizeStatus(value: string): LeadStatus {
     : "未確認";
 }
 
+function deriveLeadStatus(lead: Record<string, unknown>): LeadStatus {
+  const status = normalizeStatus(String(lead.status || "未確認"));
+  if (status !== "未確認") return status;
+  const hasForm = typeof lead.contactUrl === "string" && lead.contactUrl.trim().length > 0;
+  const hasEmail = typeof lead.email === "string" && lead.email.trim().length > 0;
+  const hasFax = typeof lead.fax === "string" && lead.fax.trim().length > 0;
+  if (hasForm || hasEmail) return "送信準備";
+  if (hasFax) return "ファックス候補あり";
+  return status;
+}
+
+function nextActionForStatus(status: LeadStatus) {
+  if (status === "送信準備") return "営業文作成";
+  if (status === "ファックス候補あり") return "FAX文作成";
+  return "連絡先確認";
+}
+
 function mergeLeads(incoming: Lead[], current: Lead[]) {
   const existing = new Set(current.map((lead) => `${lead.company}-${lead.area}`));
   const fresh = incoming.filter((lead) => {
@@ -396,25 +413,28 @@ export default function Page() {
       });
       const data = await response.json();
       const nextId = Math.max(...leads.map((lead) => lead.id), 0) + 1;
-      const collected: Lead[] = (data.leads || []).map((lead: Record<string, unknown>, index: number) => ({
-        id: nextId + index,
-        score: Number(lead.score || 70),
-        company: String(lead.name || `収集候補 ${nextId + index}`),
-        industry: normalizeIndustry(String(lead.industry || draftIndustry || "自動車部品")),
-        area: String(lead.area || draftArea),
-        source: String(lead.source || "企業情報収集"),
-        status: normalizeStatus(String(lead.status || "未確認")),
-        next: String(lead.next || "連絡先確認"),
-        offer: String(lead.offer || "定期便・ルート便の提案"),
-        url: String(lead.url || ""),
-        formUrl: typeof lead.contactUrl === "string" ? lead.contactUrl : undefined,
-        fax: typeof lead.fax === "string" ? lead.fax : undefined,
-        email: typeof lead.email === "string" ? lead.email : undefined,
-        address: typeof lead.address === "string" ? lead.address : undefined,
-        phone: typeof lead.phone === "string" ? lead.phone : undefined,
-        summary: typeof lead.summary === "string" ? lead.summary : undefined,
-        searchTerms: Array.isArray(lead.searchTerms) ? lead.searchTerms.map(String) : undefined,
-      }));
+      const collected: Lead[] = (data.leads || []).map((lead: Record<string, unknown>, index: number) => {
+        const status = deriveLeadStatus(lead);
+        return {
+          id: nextId + index,
+          score: Number(lead.score || 70),
+          company: String(lead.name || `収集候補 ${nextId + index}`),
+          industry: normalizeIndustry(String(lead.industry || draftIndustry || "自動車部品")),
+          area: String(lead.area || draftArea),
+          source: String(lead.source || "企業情報収集"),
+          status,
+          next: String(lead.next || nextActionForStatus(status)),
+          offer: String(lead.offer || "定期便・ルート便の提案"),
+          url: String(lead.url || ""),
+          formUrl: typeof lead.contactUrl === "string" ? lead.contactUrl : undefined,
+          fax: typeof lead.fax === "string" ? lead.fax : undefined,
+          email: typeof lead.email === "string" ? lead.email : undefined,
+          address: typeof lead.address === "string" ? lead.address : undefined,
+          phone: typeof lead.phone === "string" ? lead.phone : undefined,
+          summary: typeof lead.summary === "string" ? lead.summary : undefined,
+          searchTerms: Array.isArray(lead.searchTerms) ? lead.searchTerms.map(String) : undefined,
+        };
+      });
       setLeads((current) => mergeLeads(collected, current));
       if (collected[0]) setSelectedId(collected[0].id);
       setCollectionProgress(100);
