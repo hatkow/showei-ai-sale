@@ -14,6 +14,7 @@ type CollectedLead = {
   industry: string;
   area: string;
   url: string;
+  mapUrl: string;
   source: string;
   status: string;
   score: number;
@@ -201,7 +202,8 @@ function normalizePlace(place: Record<string, unknown>, industry: string, area: 
   if (!name) return null;
   const website = typeof place.website === "string" ? place.website : "";
   const cid = place.cid ? String(place.cid) : "";
-  const url = website || (cid ? `https://www.google.com/maps?cid=${cid}` : "");
+  const mapUrl = cid ? `https://www.google.com/maps?cid=${cid}` : "";
+  const url = website || mapUrl;
   const category = String(place.category || "");
   const address = String(place.address || "");
   const phone = String(place.phoneNumber || "");
@@ -210,6 +212,7 @@ function normalizePlace(place: Record<string, unknown>, industry: string, area: 
     industry,
     area: address || area,
     url,
+    mapUrl,
     source: website ? "地図掲載サイト" : "地図情報",
     status: "未確認",
     score: scoreLead(category, website, phone),
@@ -308,6 +311,7 @@ function sampleLeads(industries: string[], area: string, limit: number) {
       industry,
       area,
       url: "",
+      mapUrl: "",
       source: "サンプル",
       status: "未確認",
       score: 72,

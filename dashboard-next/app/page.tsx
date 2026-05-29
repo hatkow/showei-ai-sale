@@ -57,11 +57,14 @@ type Lead = {
   next: string;
   offer: string;
   url?: string;
+  mapUrl?: string;
   formUrl?: string;
   fax?: string;
   email?: string;
   address?: string;
   phone?: string;
+  latitude?: number;
+  longitude?: number;
   summary?: string;
   searchTerms?: string[];
 };
@@ -216,6 +219,45 @@ function isRealContactUrl(url?: string) {
   } catch {
     return false;
   }
+}
+
+function isExternalUrl(url?: string) {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function isGoogleMapUrl(url?: string) {
+  if (!url) return false;
+  try {
+    const host = new URL(url).hostname.replace(/^www\./, "");
+    return host === "google.com" || host.endsWith(".google.com");
+  } catch {
+    return false;
+  }
+}
+
+function getCompanySiteUrl(lead: Lead) {
+  return isExternalUrl(lead.url) && !isGoogleMapUrl(lead.url) ? lead.url : undefined;
+}
+
+function getMapUrl(lead: Lead) {
+  if (isExternalUrl(lead.mapUrl)) return lead.mapUrl;
+  if (isGoogleMapUrl(lead.url)) return lead.url;
+  const query = [lead.company, lead.address || lead.area].filter(Boolean).join(" ");
+  return query ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}` : undefined;
+}
+
+function getMapEmbedUrl(lead: Lead) {
+  const query =
+    typeof lead.latitude === "number" && typeof lead.longitude === "number"
+      ? `${lead.latitude},${lead.longitude}`
+      : [lead.company, lead.address || lead.area].filter(Boolean).join(" ");
+  return query ? `https://maps.google.com/maps?q=${encodeURIComponent(query)}&output=embed` : undefined;
 }
 
 function buildProposalDraft(lead: Lead): ProposalDraft {
@@ -426,11 +468,14 @@ export default function Page() {
           next: String(lead.next || nextActionForStatus(status)),
           offer: String(lead.offer || "定期便・ルート便の提案"),
           url: String(lead.url || ""),
+          mapUrl: typeof lead.mapUrl === "string" ? lead.mapUrl : undefined,
           formUrl: typeof lead.contactUrl === "string" ? lead.contactUrl : undefined,
           fax: typeof lead.fax === "string" ? lead.fax : undefined,
           email: typeof lead.email === "string" ? lead.email : undefined,
           address: typeof lead.address === "string" ? lead.address : undefined,
           phone: typeof lead.phone === "string" ? lead.phone : undefined,
+          latitude: typeof lead.latitude === "number" ? lead.latitude : undefined,
+          longitude: typeof lead.longitude === "number" ? lead.longitude : undefined,
           summary: typeof lead.summary === "string" ? lead.summary : undefined,
           searchTerms: Array.isArray(lead.searchTerms) ? lead.searchTerms.map(String) : undefined,
         };
@@ -973,6 +1018,9 @@ function CommandPanel({
     { title: "営業文面を作成", desc: "フォーム用またはファックス用を選んで生成", icon: Bot, done: lead.status === "送信準備" || lead.status === "送信済み" },
     { title: "送信済みに記録", desc: "送信方法、切り口、メモを履歴化", icon: Clock3, done: lead.status === "送信済み" },
   ];
+  const companySiteUrl = getCompanySiteUrl(lead);
+  const mapUrl = getMapUrl(lead);
+  const mapEmbedUrl = getMapEmbedUrl(lead);
 
   return (
     <Card className="panel-surface hairline">
@@ -1009,6 +1057,63 @@ function CommandPanel({
           <Button variant="outline" onClick={onMapLookup}>地図情報取得</Button>
           <Button variant="outline" onClick={onCreateProposal}>文面作成</Button>
           <Button onClick={onMarkSent}>送信済みにする</Button>
+        </div>
+        <div className="rounded-lg border border-border bg-background/35 p-3">
+          <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="text-sm font-semibold">地図・企業サイト確認</div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                営業前に場所、建物、公式サイト、フォームを確認できます。
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {mapUrl ? (
+                <Button asChild variant="outline" size="sm">
+                  <a href={mapUrl} target="_blank" rel="noreferrer">
+                    Google Mapを開く
+                    <ExternalLink />
+                  </a>
+                </Button>
+              ) : (
+                <Button variant="outline" size="sm" disabled>地図未取得</Button>
+              )}
+              {companySiteUrl ? (
+                <Button asChild variant="outline" size="sm">
+                  <a href={companySiteUrl} target="_blank" rel="noreferrer">
+                    企業サイトを開く
+                    <ExternalLink />
+                  </a>
+                </Button>
+              ) : (
+                <Button variant="outline" size="sm" disabled>企業サイト未取得</Button>
+              )}
+              {isRealContactUrl(lead.formUrl) ? (
+                <Button asChild size="sm">
+                  <a href={lead.formUrl} target="_blank" rel="noreferrer">
+                    フォームを開く
+                    <ExternalLink />
+                  </a>
+                </Button>
+              ) : (
+                <Button variant="outline" size="sm" disabled>フォーム未取得</Button>
+              )}
+            </div>
+          </div>
+          {mapEmbedUrl ? (
+            <div className="overflow-hidden rounded-md border border-border bg-muted/20">
+              <iframe
+                title={`${lead.company} の地図`}
+                src={mapEmbedUrl}
+                className="h-56 w-full"
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
+              />
+            </div>
+          ) : (
+            <div className="rounded-md border border-dashed border-border px-3 py-8 text-center text-sm text-muted-foreground">
+              地図情報を取得すると、ここに地図プレビューが表示されます。
+            </div>
+          )}
         </div>
         {draft ? (
           <div className="rounded-lg border border-primary/25 bg-primary/8 p-3">
