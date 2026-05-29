@@ -160,13 +160,13 @@ const initialLeads: Lead[] = [
 ];
 
 const nav = [
-  { label: "受信箱", icon: Inbox, count: "12" },
-  { label: "営業候補", icon: Layers3, count: "48" },
+  { label: "受信箱", icon: Inbox },
+  { label: "営業候補", icon: Layers3 },
   { label: "地図検索", icon: Radar },
   { label: "提案文", icon: FileText },
-  { label: "送信待ち", icon: Send, count: "7" },
+  { label: "送信待ち", icon: Send },
   { label: "履歴", icon: Archive },
-] satisfies Array<{ label: NavLabel; icon: typeof Inbox; count?: string }>;
+] satisfies Array<{ label: NavLabel; icon: typeof Inbox }>;
 
 const savedViews: SavedView[] = ["フォームあり", "ファックス候補あり", "再送フォロー", "地図情報未確認"];
 
@@ -255,6 +255,14 @@ export default function Page() {
   const [proposalDraft, setProposalDraft] = useState<ProposalDraft | null>(null);
 
   const selectedLead = leads.find((lead) => lead.id === selectedId) ?? leads[0];
+  const navCounts: Record<NavLabel, number> = {
+    受信箱: activity.length,
+    営業候補: leads.length,
+    地図検索: leads.filter((lead) => lead.source.includes("地図")).length,
+    提案文: proposalDraft ? 1 : 0,
+    送信待ち: leads.filter((lead) => lead.status === "送信準備").length,
+    履歴: leads.filter((lead) => lead.status === "送信済み").length,
+  };
   const visibleLeads = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
     return leads.filter((lead) => {
@@ -404,6 +412,7 @@ export default function Page() {
           area={draftArea}
           limit={draftLimit}
           isCollecting={isCollecting}
+          navCounts={navCounts}
           onMenuSelect={selectMenu}
           onSavedViewSelect={selectSavedView}
           onSearchChange={setDraftSearchQuery}
@@ -491,6 +500,7 @@ function Sidebar({
   area,
   limit,
   isCollecting,
+  navCounts,
   onMenuSelect,
   onSavedViewSelect,
   onSearchChange,
@@ -506,6 +516,7 @@ function Sidebar({
   area: string;
   limit: number;
   isCollecting: boolean;
+  navCounts: Record<NavLabel, number>;
   onMenuSelect: (label: NavLabel) => void;
   onSavedViewSelect: (view: SavedView) => void;
   onSearchChange: (value: string) => void;
@@ -585,9 +596,9 @@ function Sidebar({
             >
               <item.icon className="size-4" />
               <span>{item.label}</span>
-              {item.count ? (
+              {navCounts[item.label] > 0 ? (
                 <span className="ml-auto rounded bg-white/[.06] px-1.5 py-0.5 text-[11px] text-muted-foreground">
-                  {item.count}
+                  {navCounts[item.label]}
                 </span>
               ) : null}
             </button>
