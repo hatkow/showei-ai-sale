@@ -252,6 +252,8 @@ export default function Page() {
   const [draftArea, setDraftArea] = useState("群馬県");
   const [draftLimit, setDraftLimit] = useState(10);
   const [isCollecting, setIsCollecting] = useState(false);
+  const [collectionProgress, setCollectionProgress] = useState(0);
+  const [collectionStep, setCollectionStep] = useState("");
   const [proposalDraft, setProposalDraft] = useState<ProposalDraft | null>(null);
 
   const selectedLead = leads.find((lead) => lead.id === selectedId) ?? leads[0];
@@ -348,23 +350,45 @@ export default function Page() {
   }
 
   async function submitSearch() {
+    const targetIndustries =
+      draftIndustry === "すべて" ? industryGenres.filter((genre): genre is IndustryGenre => genre !== "すべて") : [draftIndustry];
+    const progressMessages = [
+      "業界キーワードを展開しています",
+      "Google Mapの企業情報を収集しています",
+      "求人サイトや不要な情報を除外しています",
+      "公式サイト・フォーム・FAXを確認しています",
+      "重複企業を整理しています",
+    ];
+    let progressTimer: ReturnType<typeof setInterval> | undefined;
+
     setSelectedIndustry(draftIndustry);
     setSearchQuery(draftSearchQuery);
     setActiveMenu("営業候補");
     setActiveView("なし");
     setFilter("すべて");
     const conditions = [
-      draftIndustry !== "すべて" ? draftIndustry : null,
+      draftIndustry !== "すべて" ? draftIndustry : "全ジャンル",
       draftSearchQuery.trim() ? `キーワード「${draftSearchQuery.trim()}」` : null,
     ].filter(Boolean);
     setIsCollecting(true);
+    setCollectionProgress(6);
+    setCollectionStep("検索条件を準備しています");
     setNotice(conditions.length ? `${conditions.join("、")} で企業情報を収集しています。` : "企業情報を収集しています。");
     try {
+      progressTimer = setInterval(() => {
+        setCollectionProgress((current) => {
+          const next = Math.min(current + 7, 92);
+          const stageIndex = Math.min(Math.floor(next / 20), progressMessages.length - 1);
+          setCollectionStep(progressMessages[stageIndex]);
+          return next;
+        });
+      }, 900);
       const response = await fetch("/api/collect-leads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          industry: draftIndustry === "すべて" ? "自動車部品" : draftIndustry,
+          industry: draftIndustry,
+          industries: draftIndustry === "すべて" ? targetIndustries : undefined,
           area: draftArea,
           keyword: draftSearchQuery,
           limit: draftLimit,
@@ -393,10 +417,15 @@ export default function Page() {
       }));
       setLeads((current) => mergeLeads(collected, current));
       if (collected[0]) setSelectedId(collected[0].id);
+      setCollectionProgress(100);
+      setCollectionStep(`完了しました。${targetIndustries.length}ジャンルから候補を整理しました。`);
       pushActivity(data.message || `${collected.length}件の企業候補を収集しました`);
     } catch {
+      setCollectionProgress(0);
+      setCollectionStep("");
       setNotice("企業情報の収集中にエラーが発生しました。APIキーと通信状況を確認してください。");
     } finally {
+      if (progressTimer) clearInterval(progressTimer);
       setIsCollecting(false);
     }
   }
@@ -439,6 +468,13 @@ export default function Page() {
               }}
             />
             <Notice text={notice} />
+            <CollectionProgress
+              active={isCollecting || collectionProgress > 0}
+              progress={collectionProgress}
+              step={collectionStep}
+              industryCount={draftIndustry === "すべて" ? industryGenres.length - 1 : 1}
+              limit={draftLimit}
+            />
             <KpiGrid leads={leads} />
             <div className="grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(360px,.95fr)]">
               <LeadTable
@@ -549,6 +585,9 @@ function Sidebar({
                 <option key={genre}>{genre}</option>
               ))}
             </select>
+            <span className="block px-2 text-[11px] leading-4 text-muted-foreground">
+              「すべて」は全ジャンルを一括で検索します。
+            </span>
           </label>
           <label className="flex items-center gap-2 rounded-md border border-border bg-background px-2 py-1.5 text-sm">
             <Search className="size-4 text-muted-foreground" />
@@ -573,7 +612,7 @@ function Sidebar({
             <input
               value={limit}
               min={1}
-              max={30}
+              max={50}
               type="number"
               onChange={(event) => onLimitChange(Number(event.target.value))}
               className="h-9 w-full rounded-md border border-border bg-background px-2 text-sm text-foreground outline-none"
@@ -581,7 +620,7 @@ function Sidebar({
           </label>
           <Button className="w-full bg-red-500 text-white hover:bg-red-400" onClick={onSearchSubmit} disabled={isCollecting}>
             <Search />
-            {isCollecting ? "収集中..." : "企業情報を収集する"}
+            {isCollecting ? "収集中..." : selectedIndustry === "すべて" ? "全ジャンルを一括検索" : "企業情報を収集する"}
           </Button>
         </div>
         <nav className="space-y-1">
@@ -730,6 +769,40 @@ function Notice({ text }: { text: string }) {
     <div className="rounded-lg border border-primary/20 bg-primary/10 px-4 py-3 text-sm text-primary">
       {text}
     </div>
+  );
+}
+
+function CollectionProgress({
+  active,
+  progress,
+  step,
+  industryCount,
+  limit,
+}: {
+  active: boolean;
+  progress: number;
+  step: string;
+  industryCount: number;
+  limit: number;
+}) {
+  if (!active) return null;
+  return (
+    <section className="rounded-lg border border-border bg-card/55 p-4 shadow-glow">
+      <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="text-sm font-medium text-foreground">
+            {progress >= 100 ? "一括検索が完了しました" : "一括検索を実行中"}
+          </div>
+          <div className="mt-1 text-xs text-muted-foreground">
+            {step || "検索状況を確認しています"}
+          </div>
+        </div>
+        <div className="text-xs text-muted-foreground">
+          {industryCount}ジャンル / 最大{limit}件
+        </div>
+      </div>
+      <Progress value={progress} className="h-2" />
+    </section>
   );
 }
 

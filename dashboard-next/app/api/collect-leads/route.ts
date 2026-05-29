@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 type CollectRequest = {
   industry?: string;
+  industries?: string[];
   area?: string;
   keyword?: string;
   limit?: number;
@@ -87,29 +88,32 @@ const industryTerms: Record<string, string[]> = {
   "農産物・花き": ["農産物 卸", "青果 卸", "花き 卸", "農業法人 出荷"],
 };
 
+const allIndustries = Object.keys(industryTerms);
+
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as CollectRequest;
   const apiKey = getSetting("SERPER_API_KEY");
-  const industry = body.industry || "自動車部品";
   const area = body.area || "群馬県";
   const keyword = body.keyword?.trim() || "";
-  const limit = Math.min(Math.max(Number(body.limit || 10), 1), 30);
+  const limit = Math.min(Math.max(Number(body.limit || 10), 1), 50);
+  const industries = resolveIndustries(body);
 
   if (!apiKey) {
     return NextResponse.json(
       {
         ok: false,
         message: "SERPER_API_KEY が未設定です。Streamlit Cloudまたはローカル環境に設定すると実在企業を収集できます。",
-        leads: sampleLeads(industry, area, limit),
+        searchedIndustries: industries,
+        leads: sampleLeads(industries, area, limit),
       },
       { status: 200 },
     );
   }
 
-  const queries = buildQueries(industry, area, keyword);
+  const searchPlans = industries.flatMap((industry) => buildQueries(industry, area, keyword).map((query) => ({ industry, query })));
   const collected = new Map<string, CollectedLead>();
 
-  for (const query of queries) {
+  for (const { industry, query } of searchPlans) {
     const places = await searchPlaces(apiKey, query, 20);
     for (const place of places) {
       const lead = normalizePlace(place, industry, area, query);
@@ -140,11 +144,21 @@ export async function POST(request: Request) {
 
   return NextResponse.json({
     ok: true,
-    message: `${queries.length}個の検索キーワードをすべて調査し、${leads.length}件の企業候補を収集しました。`,
-    searchedKeywords: queries,
+    message: `全${industries.length}ジャンル、${searchPlans.length}個の検索キーワードを調査し、${leads.length}件の企業候補を収集しました。`,
+    searchedIndustries: industries,
+    searchedKeywords: searchPlans.map((plan) => plan.query),
     totalCandidates: collected.size,
     leads,
   });
+}
+
+function resolveIndustries(body: CollectRequest) {
+  if (Array.isArray(body.industries) && body.industries.length > 0) {
+    const validIndustries = Array.from(new Set(body.industries.filter((industry) => industryTerms[industry])));
+    return validIndustries.length > 0 ? validIndustries : allIndustries;
+  }
+  if (!body.industry || body.industry === "すべて") return allIndustries;
+  return industryTerms[body.industry] ? [body.industry] : ["自動車部品"];
 }
 
 function getSetting(name: string) {
@@ -279,9 +293,10 @@ function stripTags(html: string) {
   return html.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ");
 }
 
-function sampleLeads(industry: string, area: string, limit: number) {
-  return [
-    {
+function sampleLeads(industries: string[], area: string, limit: number) {
+  return industries
+    .slice(0, Math.max(1, limit))
+    .map((industry, index) => ({
       name: `${area} ${industry} サンプル工場`,
       industry,
       area,
@@ -293,6 +308,7 @@ function sampleLeads(industry: string, area: string, limit: number) {
       offer: offerForIndustry(industry),
       summary: "SERPER_API_KEY 設定後に実在企業を収集します。",
       searchTerms: [`${area} ${industry}`],
-    },
-  ].slice(0, limit);
+      id: index + 1,
+    }))
+    .slice(0, limit);
 }
