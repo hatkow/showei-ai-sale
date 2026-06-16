@@ -15,6 +15,7 @@ import {
   Copy,
   CornerDownRight,
   Database,
+  Download,
   ExternalLink,
   FileText,
   Filter,
@@ -257,6 +258,71 @@ function shortUrl(url?: string) {
   }
 }
 
+function csvCell(value: unknown) {
+  const text = Array.isArray(value) ? value.join(" / ") : String(value ?? "");
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function buildLeadsCsv(leads: Lead[]) {
+  const headers = [
+    "ID",
+    "会社名",
+    "業界",
+    "エリア",
+    "営業スコア",
+    "状態",
+    "次の作業",
+    "提案内容",
+    "取得元",
+    "企業サイトURL",
+    "Google Map URL",
+    "問い合わせフォームURL",
+    "メール",
+    "FAX",
+    "電話番号",
+    "住所",
+    "緯度",
+    "経度",
+    "検索キーワード",
+    "メモ",
+  ];
+  const rows = leads.map((lead) => [
+    lead.id,
+    lead.company,
+    lead.industry,
+    lead.area,
+    lead.score,
+    lead.status,
+    lead.next,
+    lead.offer,
+    lead.source,
+    getCompanySiteUrl(lead) || lead.url || "",
+    getMapUrl(lead) || "",
+    lead.formUrl || "",
+    lead.email || "",
+    lead.fax || "",
+    lead.phone || "",
+    lead.address || "",
+    lead.latitude ?? "",
+    lead.longitude ?? "",
+    lead.searchTerms || [],
+    lead.summary || "",
+  ]);
+  return [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n");
+}
+
+function downloadCsv(filename: string, csv: string) {
+  const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
 function buildProposalDraft(lead: Lead): ProposalDraft {
   const channel = lead.fax ? "ファックス送信用" : lead.formUrl ? "問い合わせフォーム用" : "営業連絡用";
   const strength = lead.industry.includes("自動車")
@@ -391,6 +457,16 @@ export default function Page() {
     pushActivity(`${newLead.company} を追加しました`);
   }
 
+  function exportAllLeadsCsv() {
+    if (leads.length === 0) {
+      setNotice("CSV出力できる営業候補がまだありません。先に企業検索を実行してください。");
+      return;
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    downloadCsv(`showei-sales-leads-${today}.csv`, buildLeadsCsv(leads));
+    pushActivity(`${leads.length}件の営業候補をCSVで出力しました`);
+  }
+
   function selectMenu(label: NavLabel) {
     setActiveMenu(label);
     setActiveView("なし");
@@ -517,6 +593,8 @@ export default function Page() {
             theme={theme}
             onToggleTheme={() => setTheme(theme === "dark" ? "light" : "dark")}
             onAddLead={addLead}
+            onExportCsv={exportAllLeadsCsv}
+            exportDisabled={leads.length === 0}
           />
           <div className="mx-auto flex w-full max-w-[1480px] flex-1 flex-col gap-5 px-5 py-5 lg:px-7">
             <Header
@@ -753,10 +831,14 @@ function Topbar({
   theme,
   onToggleTheme,
   onAddLead,
+  onExportCsv,
+  exportDisabled,
 }: {
   theme: "dark" | "light";
   onToggleTheme: () => void;
   onAddLead: () => void;
+  onExportCsv: () => void;
+  exportDisabled: boolean;
 }) {
   return (
     <header className="flex h-14 items-center justify-between border-b border-border bg-background/82 px-4 backdrop-blur">
@@ -780,6 +862,10 @@ function Topbar({
         <Button variant="outline" size="sm" onClick={onAddLead}>
           <Plus />
           候補を追加
+        </Button>
+        <Button variant="outline" size="sm" onClick={onExportCsv} disabled={exportDisabled}>
+          <Download />
+          CSV出力
         </Button>
       </div>
     </header>
