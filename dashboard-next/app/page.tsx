@@ -325,32 +325,52 @@ function downloadCsv(filename: string, csv: string) {
 
 function buildProposalDraft(lead: Lead): ProposalDraft {
   const channel = lead.fax ? "ファックス送信用" : lead.formUrl ? "問い合わせフォーム用" : "営業連絡用";
-  const strength = lead.industry.includes("自動車")
-    ? "工場間輸送や部品納品の定期便化、欠車リスク対策"
-    : lead.industry.includes("食品")
-      ? "店舗納品や温度帯に応じた定期配送"
-      : lead.industry.includes("医療")
-        ? "医療機器の安全な定期納品と緊急配送"
-        : lead.offer;
+  const angle = lead.industry.includes("建材") || lead.industry.includes("住宅")
+    ? {
+        scene: "現場納品、資材移動、急な追加便、欠品時の緊急配送などで、外部の運送会社を追加で確保しておきたい場面",
+        strength: "建材・資材の現場納品、倉庫間移動、急なスポット便、定期ルート化",
+      }
+    : lead.industry.includes("食品") || lead.industry.includes("冷凍") || lead.industry.includes("冷蔵")
+      ? {
+          scene: "店舗納品、工場間輸送、時間指定、繁忙期の増便などで、配送体制を安定させたい場面",
+          strength: "店舗納品、工場間輸送、定期便、スポット便、繁忙期の増便相談",
+        }
+      : lead.industry.includes("自動車") || lead.industry.includes("部品") || lead.industry.includes("機械") || lead.industry.includes("金属")
+        ? {
+            scene: "工場間輸送、部品納品、納期遅延を避けたい急ぎ便、欠車時の代替便などで、配送先を追加しておきたい場面",
+            strength: "工場間輸送、部品納品の定期便化、急ぎのチャーター便、欠車リスク対策",
+          }
+        : lead.industry.includes("医療")
+          ? {
+              scene: "医療機器や関連商品の納品、急な配送依頼、定期納品の安定化などで、信頼できる配送先を確保しておきたい場面",
+              strength: "医療機器・関連商品の安全な定期納品、緊急配送、スポット便",
+            }
+          : {
+              scene: "定期納品、急な増便、小ロット配送、欠車時の代替便などで、外部の運送会社を追加で確保しておきたい場面",
+              strength: lead.offer || "定期便・ルート便・スポット便のご相談",
+            };
 
   return {
     leadId: lead.id,
-    subject: `配送体制のご相談（${channel}）`,
-    message: `${lead.company} ご担当者様
+    subject: `配送委託先の追加に関するご相談（${channel}）`,
+    message: `${lead.company}
+物流・配送ご担当者様
 
 突然のご連絡失礼いたします。
-有限会社翔栄サービスの原田と申します。
+群馬県佐波郡玉村町の有限会社翔栄サービス、原田と申します。
 
-弊社は群馬県を拠点に、定期便・ルート便・スポット便・緊急配送を行っている運送会社です。
-貴社の${lead.industry}に関する配送で、${strength}の面でお役に立てる可能性があると思い、ご連絡いたしました。
+貴社のように${lead.industry}に関わる企業様では、${angle.scene}があるのではないかと思い、ご連絡いたしました。
 
-小ロットの定期配送、工場間輸送、急な増便や欠車時の代替便など、現在の配送体制でお困りの点がございましたら、一度状況を伺えますと幸いです。
+弊社では、緊急配送、チャーター便、定期便、ルート便、スポット便、軽貨物から一般貨物まで対応しており、群馬県・関東エリアを中心に、${angle.strength}のご相談を承っております。
 
-ご多忙のところ恐縮ですが、配送のご相談先としてご検討いただけますでしょうか。
+すぐのご依頼でなくても構いませんので、現在または今後の配送体制で、外部委託先を増やしておきたい場面があるか、一度だけ確認させていただけますでしょうか。
+
+もし可能でしたら、物流・配送のご担当者様におつなぎいただけますと幸いです。
 
 有限会社翔栄サービス
 担当: 原田 裕士
-TEL: 0270-64-2429`,
+TEL: 0270-64-2429
+MAIL: showeiservice.office@gmail.com`,
   };
 }
 
