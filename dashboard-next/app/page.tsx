@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Activity,
   Archive,
@@ -19,6 +19,7 @@ import {
   ExternalLink,
   FileText,
   Filter,
+  FolderOpen,
   Gauge,
   Inbox,
   Layers3,
@@ -33,6 +34,7 @@ import {
   Search,
   Send,
   Settings2,
+  Save,
   Sparkles,
   Star,
   Sun,
@@ -80,6 +82,10 @@ type CopyField = {
   label: string;
   value: string;
   hint?: string;
+};
+type SavedLeadsPayload = {
+  savedAt: string;
+  leads: Lead[];
 };
 type NavLabel = "受信箱" | "営業候補" | "地図検索" | "提案文" | "送信待ち" | "履歴";
 type SavedView = "フォームあり" | "ファックス候補あり" | "再送フォロー" | "地図情報未確認";
@@ -131,6 +137,8 @@ const nav = [
 ] satisfies Array<{ label: NavLabel; icon: typeof Inbox }>;
 
 const savedViews: SavedView[] = ["フォームあり", "ファックス候補あり", "再送フォロー", "地図情報未確認"];
+
+const savedLeadsStorageKey = "showei_sales_saved_leads_v1";
 
 const salesProfile = {
   company: "有限会社翔栄サービス",
@@ -393,6 +401,7 @@ export default function Page() {
   const [collectionProgress, setCollectionProgress] = useState(0);
   const [collectionStep, setCollectionStep] = useState("");
   const [proposalDraft, setProposalDraft] = useState<ProposalDraft | null>(null);
+  const [savedListAt, setSavedListAt] = useState<string | null>(null);
 
   const selectedLead = leads.find((lead) => lead.id === selectedId) ?? leads[0] ?? null;
   const navCounts: Record<NavLabel, number> = {
@@ -426,6 +435,19 @@ export default function Page() {
       return matchesStatus && matchesMenu && matchesView && matchesIndustry && matchesSearch;
     });
   }, [activeMenu, activeView, filter, leads, searchQuery, selectedIndustry]);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(savedLeadsStorageKey);
+      if (!raw) return;
+      const payload = JSON.parse(raw) as SavedLeadsPayload;
+      if (payload.savedAt && Array.isArray(payload.leads)) {
+        setSavedListAt(payload.savedAt);
+      }
+    } catch {
+      window.localStorage.removeItem(savedLeadsStorageKey);
+    }
+  }, []);
 
   function pushActivity(message: string) {
     setActivity((current) => [message, ...current].slice(0, 6));
@@ -485,6 +507,41 @@ export default function Page() {
     const today = new Date().toISOString().slice(0, 10);
     downloadCsv(`showei-sales-leads-${today}.csv`, buildLeadsCsv(leads));
     pushActivity(`${leads.length}件の営業候補をCSVで出力しました`);
+  }
+
+  function saveLeadList() {
+    if (leads.length === 0) {
+      setNotice("保存できる営業候補がまだありません。先に企業検索を実行してください。");
+      return;
+    }
+    const savedAt = new Date().toISOString();
+    const payload: SavedLeadsPayload = { savedAt, leads };
+    window.localStorage.setItem(savedLeadsStorageKey, JSON.stringify(payload));
+    setSavedListAt(savedAt);
+    pushActivity(`${leads.length}件の営業候補リストを保存しました`);
+  }
+
+  function loadSavedLeadList() {
+    const raw = window.localStorage.getItem(savedLeadsStorageKey);
+    if (!raw) {
+      setNotice("保存済みの営業候補リストがありません。");
+      return;
+    }
+    try {
+      const payload = JSON.parse(raw) as SavedLeadsPayload;
+      if (!Array.isArray(payload.leads)) throw new Error("Invalid saved leads");
+      setLeads(payload.leads);
+      setSelectedId(payload.leads[0]?.id ?? null);
+      setSavedListAt(payload.savedAt || null);
+      setActiveMenu("営業候補");
+      setActiveView("なし");
+      setFilter("すべて");
+      pushActivity(`${payload.leads.length}件の保存済み営業候補を読み込みました`);
+    } catch {
+      window.localStorage.removeItem(savedLeadsStorageKey);
+      setSavedListAt(null);
+      setNotice("保存済みリストを読み込めませんでした。もう一度保存してください。");
+    }
   }
 
   function selectMenu(label: NavLabel) {
@@ -614,7 +671,12 @@ export default function Page() {
             onToggleTheme={() => setTheme(theme === "dark" ? "light" : "dark")}
             onAddLead={addLead}
             onExportCsv={exportAllLeadsCsv}
+            onSaveList={saveLeadList}
+            onLoadSavedList={loadSavedLeadList}
             exportDisabled={leads.length === 0}
+            saveDisabled={leads.length === 0}
+            loadDisabled={!savedListAt}
+            savedListAt={savedListAt}
           />
           <div className="mx-auto flex w-full max-w-[1480px] flex-1 flex-col gap-5 px-5 py-5 lg:px-7">
             <Header
@@ -852,14 +914,33 @@ function Topbar({
   onToggleTheme,
   onAddLead,
   onExportCsv,
+  onSaveList,
+  onLoadSavedList,
   exportDisabled,
+  saveDisabled,
+  loadDisabled,
+  savedListAt,
 }: {
   theme: "dark" | "light";
   onToggleTheme: () => void;
   onAddLead: () => void;
   onExportCsv: () => void;
+  onSaveList: () => void;
+  onLoadSavedList: () => void;
   exportDisabled: boolean;
+  saveDisabled: boolean;
+  loadDisabled: boolean;
+  savedListAt: string | null;
 }) {
+  const savedLabel = savedListAt
+    ? new Intl.DateTimeFormat("ja-JP", {
+        month: "numeric",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(new Date(savedListAt))
+    : null;
+
   return (
     <header className="flex h-14 items-center justify-between border-b border-border bg-background/82 px-4 backdrop-blur">
       <div className="flex items-center gap-2">
@@ -882,6 +963,14 @@ function Topbar({
         <Button variant="outline" size="sm" onClick={onAddLead}>
           <Plus />
           候補を追加
+        </Button>
+        <Button variant="outline" size="sm" onClick={onSaveList} disabled={saveDisabled}>
+          <Save />
+          リスト保存
+        </Button>
+        <Button variant="outline" size="sm" onClick={onLoadSavedList} disabled={loadDisabled}>
+          <FolderOpen />
+          {savedLabel ? `保存読込 ${savedLabel}` : "保存読込"}
         </Button>
         <Button variant="outline" size="sm" onClick={onExportCsv} disabled={exportDisabled}>
           <Download />
