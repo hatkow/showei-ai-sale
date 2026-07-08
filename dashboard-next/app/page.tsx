@@ -39,6 +39,7 @@ import {
   Star,
   Sun,
   Truck,
+  Trash2,
   Zap,
 } from "lucide-react";
 
@@ -499,6 +500,22 @@ export default function Page() {
     pushActivity(`${newLead.company} を追加しました`);
   }
 
+  function deleteLead(id: number) {
+    const target = leads.find((lead) => lead.id === id);
+    if (!target) return;
+    const ok = window.confirm(`${target.company} を営業候補リストから削除しますか？\n保存済みリストにも反映する場合は、削除後に「リスト保存」を押してください。`);
+    if (!ok) return;
+    const remaining = leads.filter((lead) => lead.id !== id);
+    setLeads(remaining);
+    if (selectedId === id) {
+      setSelectedId(remaining[0]?.id ?? null);
+    }
+    if (proposalDraft?.leadId === id) {
+      setProposalDraft(null);
+    }
+    pushActivity(`${target.company} を営業候補リストから削除しました`);
+  }
+
   function exportAllLeadsCsv() {
     if (leads.length === 0) {
       setNotice("CSV出力できる営業候補がまだありません。先に企業検索を実行してください。");
@@ -705,6 +722,7 @@ export default function Page() {
                 filter={filter}
                 onFilterChange={setFilter}
                 onSelect={setSelectedId}
+                onDelete={deleteLead}
                 onReset={() => {
                   setActiveMenu("営業候補");
                   setActiveView("なし");
@@ -1109,6 +1127,7 @@ function LeadTable({
   filter,
   onFilterChange,
   onSelect,
+  onDelete,
   onReset,
 }: {
   leads: Lead[];
@@ -1116,6 +1135,7 @@ function LeadTable({
   filter: LeadStatus | "すべて";
   onFilterChange: (filter: LeadStatus | "すべて") => void;
   onSelect: (id: number) => void;
+  onDelete: (id: number) => void;
   onReset: () => void;
 }) {
   return (
@@ -1141,7 +1161,7 @@ function LeadTable({
         </div>
       </CardHeader>
       <CardContent className="p-0">
-        <div className="grid grid-cols-[64px_1.35fr_.95fr_.95fr_1fr_112px_112px] border-b border-border px-4 py-2 text-xs text-muted-foreground">
+        <div className="grid grid-cols-[64px_1.35fr_.95fr_.95fr_1fr_112px_112px_48px] border-b border-border px-4 py-2 text-xs text-muted-foreground">
           <span>点数</span>
           <span>会社名</span>
           <span>業界</span>
@@ -1149,6 +1169,7 @@ function LeadTable({
           <span>提案内容</span>
           <span>状態</span>
           <span>次の作業</span>
+          <span>削除</span>
         </div>
         {leads.length === 0 ? (
           <div className="flex min-h-[260px] flex-col items-center justify-center px-4 py-12 text-center">
@@ -1164,36 +1185,46 @@ function LeadTable({
             </Button>
           </div>
         ) : leads.map((lead) => (
-          <button
+          <div
             key={lead.id}
-            onClick={() => onSelect(lead.id)}
             className={cn(
-              "grid w-full grid-cols-[64px_1.35fr_.95fr_.95fr_1fr_112px_112px] items-center border-b border-border/70 px-4 py-3 text-left text-sm transition-colors last:border-b-0 hover:bg-white/[.035]",
+              "grid w-full grid-cols-[64px_1.35fr_.95fr_.95fr_1fr_112px_112px_48px] items-center border-b border-border/70 px-4 py-3 text-left text-sm transition-colors last:border-b-0 hover:bg-white/[.035]",
               selectedId === lead.id && "bg-primary/8",
             )}
           >
             <div className="font-medium text-primary">{lead.score}</div>
-            <div className="min-w-0">
+            <button className="min-w-0 text-left" onClick={() => onSelect(lead.id)}>
               <div className="truncate font-medium">{lead.company}</div>
               <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
                 <MapPin className="size-3" />
                 {lead.area}
               </div>
-            </div>
-            <div className="truncate text-muted-foreground">{lead.industry}</div>
-            <div className="flex items-center gap-2 text-muted-foreground">
+            </button>
+            <button className="truncate text-left text-muted-foreground" onClick={() => onSelect(lead.id)}>{lead.industry}</button>
+            <button className="flex items-center gap-2 text-left text-muted-foreground" onClick={() => onSelect(lead.id)}>
               <ExternalLink className="size-4" />
               <span className="truncate">{lead.source}</span>
-            </div>
-            <div className="truncate text-muted-foreground">{lead.offer}</div>
-            <Badge variant={lead.status === "送信準備" ? "success" : lead.status === "フォームなし" ? "warning" : "outline"}>
-              {lead.status}
-            </Badge>
-            <span className="flex items-center gap-1 text-muted-foreground">
+            </button>
+            <button className="truncate text-left text-muted-foreground" onClick={() => onSelect(lead.id)}>{lead.offer}</button>
+            <button className="text-left" onClick={() => onSelect(lead.id)}>
+              <Badge variant={lead.status === "送信準備" ? "success" : lead.status === "フォームなし" ? "warning" : "outline"}>
+                {lead.status}
+              </Badge>
+            </button>
+            <button className="flex items-center gap-1 text-left text-muted-foreground" onClick={() => onSelect(lead.id)}>
               {lead.next}
               <ArrowUpRight className="size-3.5" />
-            </span>
-          </button>
+            </button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-muted-foreground hover:text-red-300"
+              aria-label={`${lead.company} を削除`}
+              onClick={() => onDelete(lead.id)}
+            >
+              <Trash2 />
+            </Button>
+          </div>
         ))}
       </CardContent>
     </Card>
